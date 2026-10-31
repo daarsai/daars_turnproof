@@ -6,19 +6,29 @@ models:
   spark_reasoning_effort: medium
 
 sampling:
-  logic_fps: 2            # local rule evaluation rate
-  aircraft_every_s: 10    # zone recomputation interval
-  loader_locate_window_s: 10
+  logic_fps: 2            # occupancy series sampled at this rate (video fps / logic_fps = step)
+  aircraft_every_s: 10
 
-zones:                    # fractions of the aircraft box; x along fuselage (nose->tail), y down
+# Zone presets. Fractions of the aircraft bounding box: x along the box (0 = left edge),
+# y down (0 = top). pad_out extends the zone below the box by that fraction of box height.
+zone_presets:
+  side:   # camera looks at the fuselage side (clip1, clip3)
+    aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
+    forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
+  nose:   # camera looks at the nose; forward hold is low on one side by the engine (clip2)
+    forward_hold: {x0: 0.00, x1: 0.45, y0: 0.55, y1: 1.00, pad_out: 0.40}
+    aft_hold:     {x0: 0.55, x1: 1.00, y0: 0.55, y1: 1.00, pad_out: 0.40}
+
+zones: &side_zones   # default = side preset
   aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
   forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
-  corridor:     {x0: 0.00, x1: 1.00, y0: 0.70, y1: 1.30}
 
-rules:
-  docked_overlap_tau: 0.30   # loader box ∩ hold region / loader box area
-  docked_min_frames: 6       # at logic_fps=2 -> 3 s hysteresis
-  undocked_min_frames: 6
+rules:                     # all durations in seconds of VIDEO (speed factor applies afterwards)
+  docked_overlap_tau: 0.30
+  docked_min_s: 3.0        # must stay in zone this long to count as docked
+  undocked_min_s: 3.0      # must stay out this long to count as departed
+  smooth_window_s: 1.0     # rolling median over the occupancy series
+  merge_gap_s: 4.0         # undocked gaps shorter than this are flicker, merged away
   spark_confidence_floor: 0.70
 
 integrity:
@@ -26,7 +36,23 @@ integrity:
   signature_alg: ed25519
   key_id: turnproof-demo-2026
 
-clips:   # per-clip DECLARED facts (uploader asserts them; packet records them as declared)
-  clip1: {reference_start_utc: "2026-10-30T17:58:00Z", speed_factor: 10.0}  # time-lapse: 1 s video = 10 s real
-  clip2: {reference_start_utc: "2026-10-30T19:10:00Z", speed_factor: 1.0}
-  clip3: {reference_start_utc: null, speed_factor: 1.0}                     # demonstrates unsynced
+# Per-clip DECLARED facts. The packet records them as declared, with their source.
+# speed_factor: real seconds per video second. null = unknown -> packet is 'unsynced' (no minutes).
+# speed_factor_source: 'source_page' (stated by the publisher) or 'estimated' (by the operator).
+clips:
+  clip1:
+    reference_start_utc: "2026-10-30T17:58:00Z"
+    speed_factor: 10.0
+    speed_factor_source: estimated
+    view: side
+  clip2:
+    reference_start_utc: "2026-10-30T19:10:00Z"
+    speed_factor: null          # time-lapse of unknown factor until the source page is checked
+    speed_factor_source: null
+    view: nose
+    zones_enabled: [forward_hold]
+  clip3:
+    reference_start_utc: null   # demonstrates unsynced
+    speed_factor: null
+    speed_factor_source: null
+    view: side

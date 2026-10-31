@@ -71,11 +71,13 @@ def main() -> int:
     else:
         print("SKIP  frame hashes (no --frames)")
 
-    # chain
+    # chain: every link must verify, and the packet's recorded head must be one of the
+    # chain's hashes (the packet is built BEFORE the 'packet_built' record is appended).
     if a.log:
         recs = [json.loads(line) for line in Path(a.log).read_text().splitlines() if line.strip()]
         run_id = recs[0]["run_id"] if recs else ""
         h = sha256_hex(run_id.encode())
+        seen = {h}
         ok = True
         for r in recs:
             body = {k: v for k, v in r.items() if k not in ("hash", "seq")}
@@ -83,10 +85,13 @@ def main() -> int:
             if r.get("hash") != h:
                 ok = False
                 break
+            seen.add(h)
+        head = p["chain"]["event_log_head_sha256"]
         results.append(
             check(
-                f"event-log chain ({len(recs)} records)",
-                ok and h == p["chain"]["event_log_head_sha256"],
+                f"event-log chain ({len(recs)} records, packet anchored at a chain hash)",
+                ok and head in seen,
+                "" if ok else "a record was altered",
             )
         )
     else:

@@ -35,7 +35,8 @@ def test_milestones_with_hysteresis():
     s += [(i, 0.6, 0.95) for i in range(8, 14)]  # 6 inside -> docked at 8
     s += [(i, 0.6, 0.95) for i in range(14, 30)]
     s += [(i, 0.1, 0.8) for i in range(30, 36)]  # 6 outside -> complete at 30
-    hits = detect(s, tau=0.3, min_docked=6, min_undocked=6)
+    hits, cycles = detect(s, tau=0.3, min_docked=6, min_undocked=6)
+    assert len(cycles) == 1
     assert [(h.name, h.frame_index) for h in hits] == [
         ("loader_docked_start", 8),
         ("loading_complete", 30),
@@ -43,4 +44,22 @@ def test_milestones_with_hysteresis():
 
 
 def test_no_milestone_if_never_docked():
-    assert detect([(i, 0.1, 0.9) for i in range(50)], 0.3, 6, 6) == []
+    assert detect([(i, 0.1, 0.9) for i in range(50)], 0.3, 6, 6) == ([], [])
+
+
+def test_flicker_is_merged_and_longest_cycle_wins():
+    s = []
+    s += [(i, 0.6, 0.9) for i in range(30)]  # docked (present at start)
+    s += [(i, 0.0, 0.0) for i in range(30, 38)]  # 8-frame flicker gap (< merge_gap 10)
+    s += [(i, 0.6, 0.9) for i in range(38, 60)]  # docked again
+    s += [(i, 0.0, 0.0) for i in range(60, 80)]  # real departure
+    s += [(i, 0.6, 0.5) for i in range(80, 88)]  # short second visit (shorter cycle)
+    s += [(i, 0.0, 0.0) for i in range(88, 100)]
+    hits, cycles = detect(s, 0.3, 6, 6, smooth_window=1, merge_gap=10)
+    assert len(cycles) == 2
+    assert [(h.name, h.frame_index) for h in hits] == [
+        ("loader_docked_start", 0),
+        ("loading_complete", 60),
+    ]
+    assert hits[0].present_at_clip_start is True
+    assert hits[1].confidence > 0.5  # confidence comes from the docked run, never 0.0

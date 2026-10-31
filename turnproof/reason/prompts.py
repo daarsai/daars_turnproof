@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-PROMPT_VERSION = "keyframe-facts-0.2"
+PROMPT_VERSION = "keyframe-facts-0.3"
 
 SYSTEM = (
     "You are the keyframe reviewer inside TurnProof, an evidence tool for aircraft turnaround "
@@ -15,8 +15,9 @@ SYSTEM = (
     "for them.\n"
     "3. You are shown a RULE CLAIM made by a geometry rule (for example 'loader_departed'). "
     "Say whether the images agree with it and why. Disagree whenever the images contradict it.\n"
-    "4. hold_door_state is the cargo (hold) door nearest the loading equipment in the LAST frame: "
-    "open, closed, or unknown if not visible.\n"
+    "4. hold_door_state is the cargo (hold) door nearest the loading equipment AFTER the "
+    "equipment left. The last image is a zoomed crop of that hold area; use it. Answer open, "
+    "closed, or unknown only if the door really is not visible in the crop either.\n"
     "5. Name the loading equipment type you can see in observed_facts "
     "(belt loader, container loader, high-loader, baggage cart, unknown).\n"
     "6. candidate_delay_code_family: the IATA AHM 730 ramp-handling family (31-39) that the "

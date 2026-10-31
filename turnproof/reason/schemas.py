@@ -54,6 +54,8 @@ class TimeSync(Strict):
     status: Literal["declared", "measured", "unsynced"]
     reference_start_utc: str | None
     measured_offset_s: float | None
+    speed_factor: float | None
+    speed_factor_source: str | None
     method: str
 
 
@@ -89,6 +91,7 @@ class Discrepancy(Strict):
     video_utc: str | None
     handler_log_utc: str | None
     video_minus_log_min: float | None
+    note: str | None
     airline_claim_minutes: int
     video_supported_minutes: int | None
     delta_min: int | None
@@ -96,7 +99,7 @@ class Discrepancy(Strict):
 
 class ProposedClaim(Strict):
     delay_code_family: str = Field(pattern=CODE_FAMILY)
-    minutes_supported_by_video: int
+    minutes_supported_by_video: int | None
     basis: str
 
 

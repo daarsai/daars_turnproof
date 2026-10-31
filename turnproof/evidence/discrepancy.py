@@ -44,13 +44,25 @@ def build(milestones: list[dict], handler_log: list[dict], claim: dict) -> list[
     rows = []
     for m in milestones:
         v, h = m.get("t_utc"), log_by.get(m["name"])
+        at_start = m.get("method", "").endswith("present_at_clip_start")
         delta_log = round((_dt(v) - _dt(h)).total_seconds() / 60, 1) if v and h else None
+        note = None
+        if at_start:
+            # The video only proves presence BY this time; an earlier log time is consistent.
+            consistent = (h is None) or (v is None) or (_dt(h) <= _dt(v))
+            delta_log = None
+            note = "equipment already present at clip start; video gives an upper bound only" + (
+                "; log time is consistent" if consistent else "; log time is LATER than video"
+            )
+        elif v is None:
+            note = "clip unsynced: no real-world time"
         rows.append(
             {
                 "milestone": m["name"],
                 "video_utc": v,
                 "handler_log_utc": h,
                 "video_minus_log_min": delta_log,
+                "note": note,
                 "airline_claim_minutes": claimed,
                 "video_supported_minutes": supported if m["name"] == "loading_complete" else None,
                 "delta_min": (claimed - supported)
@@ -72,6 +84,6 @@ def proposed_claim(claim: dict, rows: list[dict], family: str) -> dict:
         basis = f"{supported} min of the claimed window fall after loading_complete"
     return {
         "delay_code_family": family or "none",
-        "minutes_supported_by_video": supported if supported is not None else -1,
+        "minutes_supported_by_video": supported,  # None = cannot be computed
         "basis": basis,
     }

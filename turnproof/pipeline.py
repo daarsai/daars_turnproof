@@ -1,5 +1,9 @@
 """End-to-end run: clip -> frames (hashed, encrypted) -> SAM (aircraft, vehicle, person)
--> zones -> milestones -> Spark keyframe check -> discrepancy -> signed packet + event log."""
+-> zones -> milestones -> Spark keyframe check -> discrepancy -> signed packet + event log.
+
+API responses are cached per CLIP under data/cache/ (keyed by file sha256 + prompt), so
+re-running a clip costs nothing.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import cv2
 import yaml
 
 from turnproof.events.candidates import aircraft_box_for, best_zone
@@ -27,6 +32,7 @@ from turnproof.zones.aircraft_zones import all_zones
 
 DATA = Path("data")
 SCENARIOS = Path("scenarios")
+CODE_FAMILIES = ["31", "32", "33", "34", "35", "36", "37", "38", "39", "none"]
 
 
 def load_cfg(path: Path = Path("config/config.yaml")) -> dict:
@@ -37,17 +43,46 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def ref_time(ref_start: str | None, video_s: float, speed: float) -> str | None:
-    """Declared real-world time for a video offset, applying the declared speed factor."""
-    if not ref_start:
+def ref_time(ref_start: str | None, video_s: float, speed: float | None) -> str | None:
+    """Declared real-world time for a video offset. None unless both start and speed are declared."""
+    if not ref_start or speed is None:
         return None
     t0 = datetime.fromisoformat(ref_start).astimezone(UTC)
-    t = t0 + timedelta(seconds=video_s * speed)
-    return t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return (
+        (t0 + timedelta(seconds=video_s * speed))
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def nearest(records: dict[int, dict], idx: int) -> dict:
     return records.get(idx) or records[min(records, key=lambda k: abs(k - idx))]
+
+
+def zone_crop(
+    frame_png: Path, zone: tuple, out_path: Path, pad: float = 0.25, scale: int = 2
+) -> Path:
+    """Crop the hold zone (padded) from a display frame and upscale it for the Spark door check."""
+    img = cv2.imread(str(frame_png))
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = zone
+    pw, ph = (x2 - x1) * pad, (y2 - y1) * pad
+    x1, y1 = max(0, int(x1 - pw)), max(0, int(y1 - ph))
+    x2, y2 = min(w, int(x2 + pw)), min(h, int(y2 + ph))
+    crop = img[y1:y2, x1:x2]
+    if crop.size:
+        crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        cv2.imwrite(str(out_path), crop)
+    return out_path
+
+
+def effective_cfg(cfg: dict, clip_cfg: dict) -> dict:
+    """Apply the per-clip zone preset (side/nose) on top of the base config."""
+    view = clip_cfg.get("view")
+    presets = cfg.get("zone_presets", {})
+    if view and view in presets:
+        return {**cfg, "zones": presets[view]}
+    return cfg
 
 
 def run(
@@ -62,8 +97,11 @@ def run(
     out = DATA / "runs" / run_id
     out.mkdir(parents=True, exist_ok=True)
     clip_cfg = cfg.get("clips", {}).get(clip.stem, {}) or {}
+    cfg = effective_cfg(cfg, clip_cfg)
     ref_start = clip_cfg.get("reference_start_utc")
-    speed = float(clip_cfg.get("speed_factor", 1.0))
+    speed = clip_cfg.get("speed_factor")
+    speed_src = clip_cfg.get("speed_factor_source")
+    synced = bool(ref_start) and speed is not None
     scen = SCENARIOS / clip.stem
     clip_meta = json.loads((scen / "clip_meta.json").read_text())
     claim = discrepancy.load_claim(scen / "airline_claim.json")
@@ -86,9 +124,9 @@ def run(
     timings["ingest_s"] = round(time.time() - t, 2)
     log.append("system", "ingested", {"clip_sha256": info.sha256, "frames": len(records)})
 
-    # 2. perception (cached) --------------------------------------------------
+    # 2. perception (cached per clip) ----------------------------------------
     t = time.time()
-    sam = SamClient(out / "api" / "sam")
+    sam = SamClient(DATA / "cache" / "sam")
     aircraft = parse(sam.segment_video(h264, "aircraft"))
     vehicles = parse(sam.segment_video(h264, "vehicle"))
     persons = parse(sam.segment_video(h264, "person"))
@@ -102,7 +140,9 @@ def run(
 
     # 4. zones + milestones ---------------------------------------------------
     t = time.time()
-    zone_name, hits = best_zone(vehicles, aircraft, cfg, nose_left)
+    zone_name, hits, cycles = best_zone(
+        vehicles, aircraft, cfg, fps, nose_left, clip_cfg.get("zones_enabled")
+    )
     ab0 = aircraft_box_for(0, aircraft)
     zones0 = all_zones(ab0, cfg["zones"], nose_left) if ab0 else {}
     milestones: list[dict] = []
@@ -122,17 +162,22 @@ def run(
         )
     timings["events_s"] = round(time.time() - t, 2)
     lc = next((m for m in milestones if m["name"] == "loading_complete"), None)
-    status = "candidate" if lc else "no_candidate"
+    if not lc:
+        status = "no_candidate"
+    elif not synced:
+        status = "candidate_unsynced"
+    else:
+        status = "candidate"
     if lc:
         log.append(
             "system", "milestones_detected", {"milestones": milestones}, "OBSERVED", "CANDIDATE"
         )
 
-    # 5. Spark keyframe check -------------------------------------------------
+    # 5. Spark keyframe check (full frames + zoomed hold crop) ----------------
     spark_result: dict = {"ok": False, "out": None, "path": "skipped"}
     observed_facts: list[dict] = []
     spark = SparkClient(
-        out / "api" / "spark", cfg["models"]["spark"], cfg["models"]["spark_reasoning_effort"]
+        DATA / "cache" / "spark", cfg["models"]["spark"], cfg["models"]["spark_reasoning_effort"]
     )
     keyframe_ids: list[str] = []
     if lc and use_spark:
@@ -146,21 +191,27 @@ def run(
         after_idx = min(max(records), lc["frame_index"] + int(3 * fps))
         kf = [nearest(records, i) for i in (mid_idx, lc["frame_index"], after_idx)]
         keyframe_ids = [k["id"] for k in kf]
+        paths = [out / "display" / f"{k['id']}.png" for k in kf]
+        ab_after = aircraft_box_for(after_idx, aircraft)
+        if ab_after:
+            zone_box = all_zones(ab_after, cfg["zones"], nose_left)[zone_name]
+            crop = zone_crop(paths[2], zone_box, out / "display" / f"{kf[2]['id']}_holdcrop.png")
+            paths.append(crop)
+            keyframe_ids.append(f"{kf[2]['id']}_holdcrop")
         context = {
             "rule_claim": "loader_departed",
             "zone": zone_name,
             "milestones": [{k: m[k] for k in ("name", "t_utc", "frame_index")} for m in milestones],
             "airline_claim": {k: claim[k] for k in ("delay_code", "minutes", "source")},
-            "allowed_code_families": ["31", "32", "33", "34", "35", "36", "37", "38", "39", "none"],
+            "allowed_code_families": CODE_FAMILIES,
             "keyframe_roles": [
                 "during loading",
                 "at loading_complete",
                 "3 s after loading_complete",
-            ],
+                "zoomed crop of the hold area, 3 s after loading_complete",
+            ][: len(paths)],
         }
-        spark_result = spark.evaluate(
-            [out / "display" / f"{k['id']}.png" for k in kf], keyframe_ids, context
-        )
+        spark_result = spark.evaluate(paths, keyframe_ids, context)
         timings["spark_s"] = round(time.time() - t, 2)
         log.append(
             "system",
@@ -190,12 +241,14 @@ def run(
 
     # 6. discrepancy + packet -------------------------------------------------
     rows = discrepancy.build(milestones, handler_log, claim)
-    family = (spark_result.get("out") or {}).get("candidate_delay_code_family") or str(
-        claim["delay_code"]
-    )[:2]
-    proposed = discrepancy.proposed_claim(claim, rows, family if family != "none" else "none")
-    ev_ids = sorted({fid for m in milestones for fid in m["evidence_frames"]} | set(keyframe_ids))
+    so = spark_result.get("out") or {}
+    family = so.get("candidate_delay_code_family") or "none"
+    proposed = discrepancy.proposed_claim(claim, rows, family)
     by_id = {r["id"]: r for r in records.values()}
+    ev_ids = sorted(
+        {fid for m in milestones for fid in m["evidence_frames"]}
+        | {k for k in keyframe_ids if k in by_id}
+    )
     evidence_frames = [
         {
             "id": fid,
@@ -209,12 +262,16 @@ def run(
         for fid in ev_ids
     ]
     time_sync = {
-        "status": "declared" if ref_start else "unsynced",
+        "status": "declared" if synced else "unsynced",
         "reference_start_utc": ref_start,
         "measured_offset_s": None,
-        "method": f"uploader_declared; speed_factor={speed} (1 s video = {speed} s real)"
-        if ref_start
-        else "none",
+        "speed_factor": speed,
+        "speed_factor_source": speed_src,
+        "method": (
+            f"uploader_declared start; speed_factor {speed} ({speed_src}): 1 s video = {speed} s real"
+            if synced
+            else "unsynced: start time or speed factor not declared; no real-world minutes computed"
+        ),
     }
     models = {
         "sam": {
@@ -229,12 +286,10 @@ def run(
             "reasoning_effort": cfg["models"]["spark_reasoning_effort"],
             "path": spark_result.get("path"),
             "ok": spark_result.get("ok"),
-            "rule_claim_check": (spark_result.get("out") or {}).get("rule_claim_check"),
-            "hold_door_state": (spark_result.get("out") or {}).get("hold_door_state"),
-            "requires_operator_review": (spark_result.get("out") or {}).get(
-                "requires_operator_review", True
-            ),
-            "confidence": (spark_result.get("out") or {}).get("confidence"),
+            "rule_claim_check": so.get("rule_claim_check"),
+            "hold_door_state": so.get("hold_door_state"),
+            "requires_operator_review": so.get("requires_operator_review", True),
+            "confidence": so.get("confidence"),
         },
         "asr": None,
         "zones_config_sha256": sha256_hex(json.dumps(cfg["zones"], sort_keys=True).encode()),
@@ -269,15 +324,11 @@ def run(
         log.append(
             "system", "packet_built", {"packet_id": pid, "packet_sha256": packet["packet_sha256"]}
         )
-        log.export_jsonl(
-            out / "eventlog.jsonl"
-        )  # chain head inside packet = head before packet_built
-    else:
-        log.export_jsonl(out / "eventlog.jsonl")
+    log.export_jsonl(out / "eventlog.jsonl")
 
     # 7. metrics --------------------------------------------------------------
-    sam_frames = sum(1 for _ in range(0))  # placeholder replaced below
-    sam_frames = 3 * max(50, len(records)) if any(not c.get("cached") for c in sam.calls) else 0
+    live_sam = [c for c in sam.calls if not c.get("cached")]
+    sam_frames = len(live_sam) * max(50, len(records))
     tokens_in = sum(c.get("tokens_in", 0) for c in spark.calls)
     tokens_out = sum(c.get("tokens_out", 0) for c in spark.calls)
     metrics = {
@@ -285,6 +336,7 @@ def run(
         "clip": str(clip),
         "frames_processed": len(records),
         "sam_requests": len(sam.calls),
+        "sam_requests_live": len(live_sam),
         "sam_frames_billed_est": sam_frames,
         "spark_calls": len(spark.calls),
         "spark_tokens_in": tokens_in,
@@ -292,9 +344,9 @@ def run(
         "est_cost_usd": round(sam_frames * 0.0002 + tokens_in * 1.25e-6 + tokens_out * 4.25e-6, 4),
         "latency_s": {**timings, "total_s": round(time.time() - t_start, 2)},
         "candidates": 1 if lc else 0,
+        "cycles_per_zone": {z: len(c) for z, c in cycles.items()},
         "milestones_found": [m["name"] for m in milestones],
         "time_sync_status": time_sync["status"],
-        "hash_verification": "pending_verify_packet",
     }
     (out / "run_metrics.json").write_text(json.dumps(metrics, indent=1))
 
@@ -303,6 +355,10 @@ def run(
         "status": status,
         "zone_used": zone_name,
         "zones_frame0": zones0,
+        "cycles": {
+            z: [{"start": c.start, "end": c.end, "conf": c.conf} for c in cs]
+            for z, cs in cycles.items()
+        },
         "time_sync": time_sync,
         "milestones": milestones,
         "spark": models["spark"],
@@ -332,25 +388,17 @@ def main(argv: list[str] | None = None) -> None:
     if a.cmd == "run":
         os.environ.setdefault("PYTHONUNBUFFERED", "1")
         s = run(Path(a.clip), load_cfg(), a.run_id, a.nose_left, not a.no_spark)
-        show = {
-            k: s[k]
-            for k in (
-                "run_id",
-                "status",
-                "zone_used",
-                "milestones",
-                "spark",
-                "discrepancies",
-                "proposed_claim",
-                "packet",
-                "packet_sha256",
-            )
-        }
+        keys = (
+            "run_id", "status", "zone_used", "cycles", "time_sync", "milestones", "spark",
+            "observed_facts", "discrepancies", "proposed_claim", "packet", "packet_sha256",
+        )  # fmt: skip
+        show = {k: s[k] for k in keys}
         show["latency_s"] = s["metrics"]["latency_s"]
         show["est_cost_usd"] = s["metrics"]["est_cost_usd"]
         print(json.dumps(show, indent=1))
         print(f"run folder: data/runs/{s['run_id']}")
         if s["packet"]:
             print(
-                f"verify:  python verify_packet.py {s['packet']} --frames data/runs/{s['run_id']}/display --log data/runs/{s['run_id']}/eventlog.jsonl"
+                f"verify:  python verify_packet.py {s['packet']} --frames data/runs/{s['run_id']}/display"
+                f" --log data/runs/{s['run_id']}/eventlog.jsonl"
             )

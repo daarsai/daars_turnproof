@@ -69,6 +69,7 @@ def test_packet_sign_verify_and_tamper(tmp_path, monkeypatch):
     log.append("system", "ingested", {"frames": 2})
     log.append("system", "milestones_detected", {}, "OBSERVED", "CANDIDATE")
     head = log.head()
+    log.append("system", "packet_built", {"packet_id": "TP-TEST-1"})  # appended AFTER the head
     log.export_jsonl(tmp_path / "eventlog.jsonl")
 
     milestones = [
@@ -138,6 +139,8 @@ def test_packet_sign_verify_and_tamper(tmp_path, monkeypatch):
             "status": "declared",
             "reference_start_utc": "2026-10-30T17:58:00Z",
             "measured_offset_s": None,
+            "speed_factor": 1.0,
+            "speed_factor_source": "estimated",
             "method": "uploader_declared",
         },
         airline_claim=claim,

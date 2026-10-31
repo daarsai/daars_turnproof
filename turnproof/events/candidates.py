@@ -1,12 +1,14 @@
 """From per-frame detections to milestones: equipment-agnostic.
 
 Any 'vehicle' box (excluding the aircraft itself) that overlaps a hold zone >= tau counts as
-loading equipment present at that hold. No identity tracking is needed.
+loading equipment present at that hold. No identity tracking is needed. The occupancy series
+is sampled at logic_fps and smoothed; thresholds are given in SECONDS of video in config and
+converted to frames here.
 """
 
 from __future__ import annotations
 
-from turnproof.events.milestones import MilestoneHit, detect
+from turnproof.events.milestones import Cycle, MilestoneHit, detect
 from turnproof.perception.sam_parse import Det, iou, largest
 from turnproof.zones.aircraft_zones import all_zones, overlap_ratio
 
@@ -14,7 +16,6 @@ Box = tuple[float, float, float, float]
 
 
 def aircraft_box_for(frame: int, aircraft: dict[int, list[Det]]) -> Box | None:
-    """Nearest earlier (or any) frame with an aircraft detection -> its largest box."""
     if not aircraft:
         return None
     keys = sorted(aircraft)
@@ -30,10 +31,13 @@ def occupancy_series(
     zone_name: str,
     nose_left: bool = False,
     aircraft_iou_reject: float = 0.5,
+    step: int = 1,
 ) -> list[tuple[int, float, float]]:
-    """(frame, max overlap ratio of any vehicle with the zone, confidence) per frame."""
+    """(frame, max overlap ratio of any vehicle with the zone, that vehicle's confidence)."""
     series: list[tuple[int, float, float]] = []
     for frame in sorted(vehicles):
+        if frame % step:
+            continue
         ab = aircraft_box_for(frame, aircraft)
         if ab is None:
             series.append((frame, 0.0, 0.0))
@@ -42,7 +46,7 @@ def occupancy_series(
         best_ov, best_c = 0.0, 0.0
         for d in vehicles[frame]:
             if iou(d.box, ab) >= aircraft_iou_reject:
-                continue  # the aircraft mis-labelled as a vehicle
+                continue
             ov = overlap_ratio(d.box, zone)
             if ov > best_ov:
                 best_ov, best_c = ov, d.c or 0.0
@@ -50,50 +54,54 @@ def occupancy_series(
     return series
 
 
+def _frames(seconds: float, fps: float, step: int) -> int:
+    return max(1, round(seconds * fps / step))
+
+
 def milestones_for_zone(
     vehicles: dict[int, list[Det]],
     aircraft: dict[int, list[Det]],
     cfg: dict,
     zone_name: str,
+    fps: float,
     nose_left: bool = False,
-) -> list[MilestoneHit]:
+) -> tuple[list[MilestoneHit], list[Cycle]]:
     rules = cfg["rules"]
-    series = occupancy_series(vehicles, aircraft, cfg["zones"], zone_name, nose_left)
+    logic_fps = float(cfg.get("sampling", {}).get("logic_fps", 2))
+    step = max(1, round(fps / logic_fps))
+    series = occupancy_series(vehicles, aircraft, cfg["zones"], zone_name, nose_left, step=step)
     return detect(
         series,
         rules["docked_overlap_tau"],
-        rules["docked_min_frames"],
-        rules["undocked_min_frames"],
+        _frames(rules["docked_min_s"], fps, step),
+        _frames(rules["undocked_min_s"], fps, step),
+        smooth_window=_frames(rules.get("smooth_window_s", 1.0), fps, step) | 1,
+        merge_gap=_frames(rules.get("merge_gap_s", 4.0), fps, step),
     )
 
 
-def cycles(hits: list[MilestoneHit]) -> list[tuple[int, int]]:
-    """(docked_start_frame, loading_complete_frame) pairs in order."""
-    out, start = [], None
-    for h in hits:
-        if h.name == "loader_docked_start":
-            start = h.frame_index
-        elif h.name == "loading_complete" and start is not None:
-            out.append((start, h.frame_index))
-            start = None
-    return out
-
-
 def best_zone(
-    vehicles: dict[int, list[Det]], aircraft: dict[int, list[Det]], cfg: dict, nose_left: bool
-) -> tuple[str, list[MilestoneHit]]:
-    """Pick the hold zone with the longest complete docked->complete stay (loading takes
-    minutes; a vehicle driving past does not). Falls back to the zone with most hits."""
-    results = {
-        z: milestones_for_zone(vehicles, aircraft, cfg, z, nose_left)
-        for z in cfg["zones"]
-        if z.endswith("_hold")
-    }
-    longest = {z: max((b - a for a, b in cycles(h)), default=0) for z, h in results.items()}
-    if any(longest.values()):
-        z = max(longest, key=longest.get)
-    elif results:
-        z = max(results, key=lambda k: len(results[k]))
+    vehicles: dict[int, list[Det]],
+    aircraft: dict[int, list[Det]],
+    cfg: dict,
+    fps: float,
+    nose_left: bool = False,
+    zones_enabled: list[str] | None = None,
+) -> tuple[str, list[MilestoneHit], dict[str, list[Cycle]]]:
+    """Pick the hold zone with the longest complete docked->complete stay."""
+    names = [z for z in cfg["zones"] if z.endswith("_hold")]
+    if zones_enabled:
+        names = [z for z in names if z in zones_enabled]
+    results = {z: milestones_for_zone(vehicles, aircraft, cfg, z, fps, nose_left) for z in names}
+    all_cycles = {z: r[1] for z, r in results.items()}
+
+    def longest(z: str) -> int:
+        return max((c.end - c.start for c in all_cycles[z] if c.end is not None), default=0)
+
+    if names and any(longest(z) for z in names):
+        z = max(names, key=longest)
+    elif names:
+        z = max(names, key=lambda k: len(all_cycles[k]))
     else:
         z = next(iter(cfg["zones"]))
-    return z, results.get(z, [])
+    return z, results.get(z, ([], []))[0], all_cycles

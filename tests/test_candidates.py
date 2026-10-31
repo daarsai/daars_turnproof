@@ -6,8 +6,16 @@ CFG = {
         "aft_hold": {"x0": 0.62, "x1": 0.95, "y0": 0.45, "y1": 0.95, "pad_out": 0.35},
         "forward_hold": {"x0": 0.08, "x1": 0.40, "y0": 0.45, "y1": 0.95, "pad_out": 0.35},
     },
-    "rules": {"docked_overlap_tau": 0.3, "docked_min_frames": 3, "undocked_min_frames": 3},
+    "rules": {
+        "docked_overlap_tau": 0.3,
+        "docked_min_s": 3,
+        "undocked_min_s": 3,
+        "smooth_window_s": 0,
+        "merge_gap_s": 0,
+    },
+    "sampling": {"logic_fps": 1},
 }
+FPS = 1.0
 W, H = 1280, 516
 AC = (392, 0, 1267, 363)  # real aircraft box from clip1
 
@@ -35,7 +43,7 @@ def test_full_cycle_in_forward_hold():
         vehicles[f] = [det(f, inside)]
     for f in range(15, 22):
         vehicles[f] = [det(f, away)]
-    zone, hits = best_zone(vehicles, aircraft, CFG, nose_left=False)
+    zone, hits, _cycles = best_zone(vehicles, aircraft, CFG, FPS, nose_left=False)
     assert zone == "forward_hold"
     assert [(h.name, h.frame_index) for h in hits] == [
         ("loader_docked_start", 5),
