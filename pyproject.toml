@@ -1,0 +1,42 @@
+[project]
+name = "turnproof"
+version = "0.1.0"
+description = "Video-backed, delay-code-linked turnaround evidence packets for ground handlers"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "openai>=1.50",
+    "opencv-python-headless>=4.10",
+    "numpy>=1.26",
+    "pydantic>=2.8",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "cryptography>=43",
+    "tenacity>=9",
+    "fpdf2>=2.7",
+    "pyyaml>=6",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+turnproof = "turnproof.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["turnproof*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

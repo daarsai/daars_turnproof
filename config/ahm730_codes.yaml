@@ -1,0 +1,14 @@
+# IATA AHM 730 standard delay codes — ramp handling family.
+# TODO (Day 0): fill titles from a published AHM 730 list and cite the source URL here.
+# Do not type descriptions from memory. Source: <paste URL>
+source: ""
+codes:
+  "31": {family: "31", title: ""}
+  "32": {family: "32", title: ""}
+  "33": {family: "33", title: ""}
+  "34": {family: "34", title: ""}
+  "35": {family: "35", title: ""}
+  "36": {family: "36", title: ""}
+  "37": {family: "37", title: ""}
+  "38": {family: "38", title: ""}
+  "39": {family: "39", title: ""}
