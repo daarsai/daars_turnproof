@@ -1,0 +1,5 @@
+{
+  "station": "BLR", "stand": "D16", "flight_number": "XY456", "flight_date": "2026-10-30",
+  "airline": "XY Airways", "handler": "Handler Co", "camera_id": "stand-d14-01",
+  "data_label": "synthetic test data"
+}

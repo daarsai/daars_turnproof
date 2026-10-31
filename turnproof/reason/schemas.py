@@ -88,9 +88,10 @@ class Discrepancy(Strict):
     milestone: str
     video_utc: str | None
     handler_log_utc: str | None
+    video_minus_log_min: float | None
     airline_claim_minutes: int
-    video_supported_minutes: int
-    delta_min: int
+    video_supported_minutes: int | None
+    delta_min: int | None
 
 
 class ProposedClaim(Strict):

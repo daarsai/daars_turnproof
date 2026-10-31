@@ -1,0 +1,4 @@
+{
+  "delay_code": "32", "minutes": 9, "source": "MVT (synthetic test data)",
+  "claim_window_utc": {"start": "2026-10-30T19:20:00Z", "end": "2026-10-30T19:29:00Z"}
+}

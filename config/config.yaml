@@ -26,7 +26,7 @@ integrity:
   signature_alg: ed25519
   key_id: turnproof-demo-2026
 
-clips:
-  clip1: {reference_start_utc: "2026-10-30T17:55:00Z"}
-  clip2: {reference_start_utc: "2026-10-30T19:10:00Z"}
-  clip3: {reference_start_utc: null}   # demonstrates unsynced
+clips:   # per-clip DECLARED facts (uploader asserts them; packet records them as declared)
+  clip1: {reference_start_utc: "2026-10-30T17:58:00Z", speed_factor: 10.0}  # time-lapse: 1 s video = 10 s real
+  clip2: {reference_start_utc: "2026-10-30T19:10:00Z", speed_factor: 1.0}
+  clip3: {reference_start_utc: null, speed_factor: 1.0}                     # demonstrates unsynced

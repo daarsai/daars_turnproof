@@ -14,19 +14,25 @@ class MilestoneHit:
     name: str
     frame_index: int
     confidence: float
+    present_at_clip_start: bool = False  # docked run began on the very first sample
 
 
 def detect(samples: list[tuple[int, float, float]], tau: float, min_docked: int, min_undocked: int):
     state = "UNDOCKED"
     run: list[tuple[int, float, float]] = []
     hits: list[MilestoneHit] = []
+    first_idx = samples[0][0] if samples else None
     for idx, ov, c in samples:
         inside = ov >= tau
         if state == "UNDOCKED":
             run = run + [(idx, ov, c)] if inside else []
             if len(run) >= min_docked:
                 state = "DOCKED"
-                hits.append(MilestoneHit("loader_docked_start", run[0][0], _mean(run)))
+                hits.append(
+                    MilestoneHit(
+                        "loader_docked_start", run[0][0], _mean(run), run[0][0] == first_idx
+                    )
+                )
                 run = []
         else:  # DOCKED
             run = run + [(idx, ov, c)] if not inside else []
