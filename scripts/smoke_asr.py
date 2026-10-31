@@ -10,6 +10,7 @@ under two hours of total effort the voice feature is DROPPED (no non-Meta STT).
 from __future__ import annotations
 
 import base64
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,11 +26,19 @@ def main(path: Path) -> None:
     key = os.environ.get("MODEL_API_KEY") or sys.exit("MODEL_API_KEY missing")
     h = {"Authorization": f"Bearer {key}"}
     with httpx.Client(timeout=120) as c:
+        # Server's 400 on the old shape said: "Both a 'request' and an 'audio' part
+        # are required" — so the body is two multipart parts named exactly that.
         r = c.post(
             URL,
             headers=h,
-            data={"model": "muse-voice-transcribe-1.0"},
-            files={"file": (path.name, path.read_bytes(), "audio/wav")},
+            files={
+                "request": (
+                    None,
+                    json.dumps({"model": "muse-voice-transcribe-1.0", "audioEncoding": "WAV"}),
+                    "application/json",
+                ),
+                "audio": (path.name, path.read_bytes(), "audio/wav"),
+            },
         )
         print("multipart:", r.status_code, r.text[:800])
         if r.is_success:
