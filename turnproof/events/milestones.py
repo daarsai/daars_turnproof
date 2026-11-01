@@ -102,8 +102,10 @@ def detect(
     smooth_window: int = 1,
     merge_gap: int = 0,
     end_floor: int = 1,
+    names: tuple[str, str] = ("loader_docked_start", "loading_complete"),
 ) -> tuple[list[MilestoneHit], list[Cycle]]:
     """Return (milestones of the longest complete cycle, all cycles after merging).
+    names = (start milestone, end milestone) for the event being detected.
 
     min_docked / min_undocked / end_floor are counts of SAMPLES; merge_gap is in FRAME units
     (the same units as sample[0]), because cycle start/end are frame indices.
@@ -125,14 +127,10 @@ def detect(
         best = cycles[0] if cycles else None
     hits: list[MilestoneHit] = []
     if best:
-        hits.append(
-            MilestoneHit("loader_docked_start", best.start, best.conf, best.present_at_clip_start)
-        )
+        hits.append(MilestoneHit(names[0], best.start, best.conf, best.present_at_clip_start))
         if best.end is not None:
             hits.append(
-                MilestoneHit(
-                    "loading_complete", best.end, best.conf, False, best.departure_at_clip_end
-                )
+                MilestoneHit(names[1], best.end, best.conf, False, best.departure_at_clip_end)
             )
     return hits, cycles
 

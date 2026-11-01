@@ -243,3 +243,32 @@ def test_statement_goes_into_the_reissued_packet(run_dir):
     assert [e["action"] for e in s.events(RUN)][-4:] == [
         "statement_recorded", "confirm", "send", "packet_reissued"
     ]  # fmt: skip
+
+
+def test_public_verify_page_with_zip_and_log(run_dir):
+    import io
+    import zipfile
+
+    c = TestClient(app_mod.app)
+    assert c.get("/verify").status_code == 200
+    # the frames zip the packet page offers, then the public page with it
+    z = c.get(f"/packets/{PID}/frames.zip")
+    assert z.status_code == 200
+    names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
+    assert "f00010.png" in names and "eventlog.jsonl" in names
+    packet_bytes = (run_dir / "packets" / f"{PID}.json").read_bytes()
+    log_bytes = (run_dir / "eventlog.jsonl").read_bytes()
+    r = c.post(
+        "/verify",
+        files={
+            "packet": ("p.json", packet_bytes, "application/json"),
+            "frames": ("frames.zip", z.content, "application/zip"),
+            "log": ("eventlog.jsonl", log_bytes, "text/plain"),
+        },
+    )
+    assert r.status_code == 200 and "VERIFIED" in r.text and "RESULT: VERIFIED" in r.text
+    # a tampered packet fails on the same page
+    bad = packet_bytes.replace(b'"minutes": 9', b'"minutes": 19')
+    assert bad != packet_bytes
+    r = c.post("/verify", files={"packet": ("p.json", bad, "application/json")})
+    assert "TAMPERED OR INVALID" in r.text

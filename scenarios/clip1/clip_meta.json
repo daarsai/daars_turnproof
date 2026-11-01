@@ -1,5 +1,13 @@
 {
-  "station": "BLR", "stand": "D14", "flight_number": "XY123", "flight_date": "2026-10-30",
-  "airline": "XY Airways", "handler": "Handler Co", "camera_id": "stand-d14-01",
-  "data_label": "synthetic test data"
+ "station": "BLR",
+ "stand": "D14",
+ "flight_number": "XY123",
+ "flight_date": "2026-10-30",
+ "airline": "XY Airways",
+ "handler": "Handler Co",
+ "camera_id": "stand-d14-01",
+ "data_label": "synthetic test data",
+ "sla_penalty_per_min": 40,
+ "currency": "EUR",
+ "sla_note": "synthetic SLA penalty rate for the demo; real rates come from the SGHA Annex B"
 }

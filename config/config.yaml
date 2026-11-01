@@ -13,16 +13,52 @@ sampling:
 # (x from the left edge, y from the top; pad_out extends below the box by that fraction of its
 # height). Zones are named by the hold the camera actually shows; a hold that is hidden from
 # that camera angle is simply not defined for that view.
+# Zones used by the events below. Only the *_hold zones are validated on our footage; the
+# wing_fuel and forward_door zones are DEFINED for the fuelling and catering events but have
+# not been checked against real detections yet (no footage with those events).
 zone_presets:
   front_quarter:   # camera ahead of the wing, nose toward the jet bridge; the wing sweeps across
                    # the box; the forward hold door sits just ahead of the wing root, low in the box
                    # (clip1, clip3). Checked against the saved SAM boxes of both clips.
     forward_hold: {x0: 0.15, x1: 0.62, y0: 0.50, y1: 0.95, pad_out: 0.20}
+    wing_fuel:    {x0: 0.00, x1: 0.30, y0: 0.25, y1: 0.80, pad_out: 0.20}   # not validated
+    forward_door: {x0: 0.62, x1: 0.85, y0: 0.35, y1: 0.80, pad_out: 0.10}   # not validated
   side:            # true side-on view, nose at the LEFT of the frame
     forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
     aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
+    wing_fuel:    {x0: 0.35, x1: 0.70, y0: 0.40, y1: 0.95, pad_out: 0.50}   # not validated
+    forward_door: {x0: 0.03, x1: 0.20, y0: 0.25, y1: 0.75, pad_out: 0.00}   # not validated
   nose:            # camera looks at the nose; forward hold low on one side by the engine (clip2)
     forward_hold: {x0: 0.00, x1: 0.45, y0: 0.55, y1: 1.00, pad_out: 0.40}
+    wing_fuel:    {x0: 0.00, x1: 0.35, y0: 0.30, y1: 0.80, pad_out: 0.20}   # not validated
+    forward_door: {x0: 0.45, x1: 0.80, y0: 0.30, y1: 0.75, pad_out: 0.10}   # not validated
+
+# Event library: one rule engine, several turnaround events. Each event names the SAM concept
+# that counts as "equipment", the zones (per view) where it docks, the milestone names it emits,
+# and the IATA delay-code families (AHM 730) a claim must belong to for the video to support it.
+# `validated` says whether the event has been checked on real footage in this repository.
+events:
+  loading:
+    label: Loading equipment at the hold
+    concept: vehicle
+    zones: [forward_hold, aft_hold]
+    milestones: {start: loader_docked_start, end: loading_complete}
+    delay_code_families: ["31", "32", "33", "34", "35", "36", "37", "38", "39"]
+    validated: true
+  fuelling:
+    label: Fuel truck at the wing
+    concept: vehicle
+    zones: [wing_fuel]
+    milestones: {start: fuel_truck_docked_start, end: fuelling_complete}
+    delay_code_families: ["36"]
+    validated: false
+  catering:
+    label: Catering truck at the forward door
+    concept: vehicle
+    zones: [forward_door]
+    milestones: {start: catering_docked_start, end: catering_complete}
+    delay_code_families: ["37"]
+    validated: false
 
 zones:             # default = side preset (overridden per clip by `view`)
   forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}

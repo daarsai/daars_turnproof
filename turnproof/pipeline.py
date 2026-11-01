@@ -63,18 +63,22 @@ def nearest(records: dict[int, dict], idx: int) -> dict:
 
 def zone_crop(
     frame_png: Path, zone: tuple, out_path: Path, pad: float = 0.25, scale: int = 2
-) -> Path:
-    """Crop the hold zone (padded) from a display frame and upscale it for the Spark door check."""
+) -> Path | None:
+    """Crop the hold zone (padded) from a display frame and upscale it for the Spark door check.
+    None when the zone lies outside the picture (then Spark gets the full frames only)."""
     img = cv2.imread(str(frame_png))
+    if img is None:
+        return None
     h, w = img.shape[:2]
     x1, y1, x2, y2 = zone
     pw, ph = (x2 - x1) * pad, (y2 - y1) * pad
     x1, y1 = max(0, int(x1 - pw)), max(0, int(y1 - ph))
     x2, y2 = min(w, int(x2 + pw)), min(h, int(y2 + ph))
+    if x2 - x1 < 8 or y2 - y1 < 8:
+        return None
     crop = img[y1:y2, x1:x2]
-    if crop.size:
-        crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        cv2.imwrite(str(out_path), crop)
+    crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    cv2.imwrite(str(out_path), crop)
     return out_path
 
 
@@ -112,6 +116,24 @@ def run(
     speed_src = clip_cfg.get("speed_factor_source")
     synced = bool(ref_start) and speed is not None
     nose_right = False  # zone presets are written per camera view; no mirroring needed
+    event_name = clip_cfg.get("event") or "loading"
+    ev = (cfg.get("events") or {}).get(event_name)
+    if ev is None:
+        raise ValueError(f"unknown event {event_name!r}; see config.events")
+    ms_names = (ev["milestones"]["start"], ev["milestones"]["end"])
+    event = {
+        "name": event_name,
+        "label": ev.get("label", event_name),
+        "concept": ev.get("concept", "vehicle"),
+        "zones": [z for z in ev.get("zones", []) if z in cfg["zones"]],
+        "milestones": {"start": ms_names[0], "end": ms_names[1]},
+        "delay_code_families": [str(f) for f in ev.get("delay_code_families", [])],
+        "validated": bool(ev.get("validated", False)),
+    }
+    if not event["zones"]:
+        raise ValueError(
+            f"event {event_name!r} has no zone defined for view {clip_cfg.get('view')!r}"
+        )
     scen = scenario_dir or SCENARIOS / clip.stem
     clip_meta = json.loads((scen / "clip_meta.json").read_text())
     claim = discrepancy.load_claim(scen / "airline_claim.json")
@@ -140,7 +162,7 @@ def run(
     t = time.time()
     sam = SamClient(DATA / "cache" / "sam")
     aircraft = parse(sam.segment_video(h264, "aircraft"))
-    vehicles = parse(sam.segment_video(h264, "vehicle"))
+    vehicles = parse(sam.segment_video(h264, event["concept"]))
     persons = parse(sam.segment_video(h264, "person"))
     timings["sam_s"] = round(time.time() - t, 2)
     log.append("system", "sam_segmented", {"calls": sam.calls})
@@ -155,7 +177,14 @@ def run(
     tick("rule: hold-zone occupancy and milestones")
     t = time.time()
     zone_name, hits, cycles = best_zone(
-        vehicles, aircraft, cfg, fps, nose_right, clip_cfg.get("zones_enabled"), speed
+        vehicles,
+        aircraft,
+        cfg,
+        fps,
+        nose_right,
+        clip_cfg.get("zones_enabled") or event["zones"],
+        speed,
+        milestone_names=ms_names,
     )
     ab0 = aircraft_box_for(0, aircraft)
     zones0 = all_zones(ab0, cfg["zones"], nose_right) if ab0 else {}
@@ -176,7 +205,7 @@ def run(
             }
         )
     timings["events_s"] = round(time.time() - t, 2)
-    lc = next((m for m in milestones if m["name"] == "loading_complete"), None)
+    lc = next((m for m in milestones if m["name"] == ms_names[1]), None)
     if not lc:
         status = "no_candidate"
     elif not synced:
@@ -198,7 +227,7 @@ def run(
     keyframe_ids: list[str] = []
     if lc and use_spark:
         t = time.time()
-        docked = next((m for m in milestones if m["name"] == "loader_docked_start"), None)
+        docked = next((m for m in milestones if m["name"] == ms_names[0]), None)
         mid_idx = (
             (docked["frame_index"] + lc["frame_index"]) // 2
             if docked
@@ -212,10 +241,12 @@ def run(
         if ab_after:
             zone_box = all_zones(ab_after, cfg["zones"], nose_right)[zone_name]
             crop = zone_crop(paths[2], zone_box, out / "display" / f"{kf[2]['id']}_holdcrop.png")
-            paths.append(crop)
-            keyframe_ids.append(f"{kf[2]['id']}_holdcrop")
+            if crop:
+                paths.append(crop)
+                keyframe_ids.append(f"{kf[2]['id']}_holdcrop")
         context = {
-            "rule_claim": "loader_departed",
+            "rule_claim": "loader_departed" if event_name == "loading" else "equipment_departed",
+            **({} if event_name == "loading" else {"event": event["label"]}),
             "zone": zone_name,
             "milestones": [{k: m[k] for k in ("name", "t_utc", "frame_index")} for m in milestones],
             "airline_claim": {k: claim[k] for k in ("delay_code", "minutes", "source")},
@@ -264,11 +295,17 @@ def run(
 
     # 6. discrepancy + packet -------------------------------------------------
     tick("packet: discrepancy table, overlays, signing")
-    rows = discrepancy.build(milestones, handler_log, claim)
+    rows = discrepancy.build(milestones, handler_log, claim, end_name=ms_names[1])
     so = spark_result.get("out") or {}
     agrees = (so.get("rule_claim_check") or {}).get("agree") if so else None
     proposed = discrepancy.proposed_claim(
-        claim, rows, has_loading_complete=bool(lc), synced=synced, spark_agrees=agrees
+        claim,
+        rows,
+        has_loading_complete=bool(lc),
+        synced=synced,
+        spark_agrees=agrees,
+        end_name=ms_names[1],
+        families=set(event["delay_code_families"]),
     )
     by_id = {r["id"]: r for r in records.values()}
     ev_ids = sorted(
@@ -337,6 +374,7 @@ def run(
             "id": cfg["models"]["sam"],
             "prompts": ["aircraft", "vehicle", "person"],
             "calls": sam.calls,
+            "event": event,
         },
         "spark": {
             "id": cfg["models"]["spark"],
@@ -415,6 +453,7 @@ def run(
         "run_id": run_id,
         "status": status,
         "zone_used": zone_name,
+        "event": event,
         "view": clip_cfg.get("view", "side"),
         "zones_frame0": zones0,
         "cycles": {

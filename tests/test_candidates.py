@@ -74,3 +74,30 @@ def test_real_seconds_scale_with_speed_factor():
     assert _video_s(60, 6.0, 2.0, 12.0) == 10.0
     assert _video_s(60, None, 2.0, 12.0) == 12.0  # unknown speed: real time, capped
     assert _video_s(60, 100.0, 2.0, 12.0) == 2.0  # floor
+
+
+def test_event_library_names_flow_through_the_rule():
+    aircraft = {0: [det(0, AC)]}
+    inside = (480, 200, 600, 330)
+    away = (100, 420, 200, 500)
+    vehicles = {f: [det(f, inside if 5 <= f < 15 else away)] for f in range(22)}
+    _zone, hits, _c = best_zone(
+        vehicles, aircraft, CFG, FPS, speed=1.0,
+        zones_enabled=["forward_hold"],
+        milestone_names=("fuel_truck_docked_start", "fuelling_complete"),
+    )  # fmt: skip
+    assert [h.name for h in hits] == ["fuel_truck_docked_start", "fuelling_complete"]
+
+
+def test_every_event_has_its_zones_in_every_view_preset():
+    from pathlib import Path
+
+    import yaml
+
+    cfg = yaml.safe_load(Path("config/config.yaml").read_text())
+    for name, ev in cfg["events"].items():
+        assert ev["milestones"]["start"] != ev["milestones"]["end"]
+        assert ev["delay_code_families"], name
+        for view, zones in cfg["zone_presets"].items():
+            assert any(z in zones for z in ev["zones"]), f"event {name} has no zone in view {view}"
+    assert cfg["events"]["loading"]["validated"] is True

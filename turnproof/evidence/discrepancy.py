@@ -36,10 +36,16 @@ def video_supported_minutes(claim: dict, loading_complete_utc: str | None) -> in
     return max(0, round((overlap_end - start).total_seconds() / 60))
 
 
-def build(milestones: list[dict], handler_log: list[dict], claim: dict) -> list[dict]:
+def build(
+    milestones: list[dict],
+    handler_log: list[dict],
+    claim: dict,
+    end_name: str = "loading_complete",
+) -> list[dict]:
+    """end_name: the milestone that ends the event (loading_complete, fuelling_complete...)."""
     log_by = {e["milestone"]: e["t_utc"] for e in handler_log}
     claimed = int(claim.get("minutes", 0))
-    lc = next((m for m in milestones if m["name"] == "loading_complete"), None)
+    lc = next((m for m in milestones if m["name"] == end_name), None)
     supported = video_supported_minutes(claim, lc["t_utc"] if lc else None)
     rows = []
     for m in milestones:
@@ -64,9 +70,9 @@ def build(milestones: list[dict], handler_log: list[dict], claim: dict) -> list[
                 "video_minus_log_min": delta_log,
                 "note": note,
                 "airline_claim_minutes": claimed,
-                "video_supported_minutes": supported if m["name"] == "loading_complete" else None,
+                "video_supported_minutes": supported if m["name"] == end_name else None,
                 "delta_min": (claimed - supported)
-                if (m["name"] == "loading_complete" and supported is not None)
+                if (m["name"] == end_name and supported is not None)
                 else None,
             }
         )
@@ -83,19 +89,22 @@ def proposed_claim(
     has_loading_complete: bool,
     synced: bool,
     spark_agrees: bool | None,
+    end_name: str = "loading_complete",
+    families: set[str] | None = None,
 ) -> dict:
     """What the video can back, from the RULE alone. The delay-code family is the airline's own
     claimed code, and only when the video supports more than zero minutes of its window; it is
     never taken from a model answer. Spark's suggested family stays in models.spark as a note."""
-    lc = next((r for r in rows if r["milestone"] == "loading_complete"), None)
+    lc = next((r for r in rows if r["milestone"] == end_name), None)
     supported = lc["video_supported_minutes"] if lc else None
     claimed = str(claim.get("delay_code", "")).strip()
-    family = claimed[:2] if claimed[:2] in LOADING_FAMILIES else "none"
+    fams = families if families is not None else LOADING_FAMILIES
+    family = claimed[:2] if claimed[:2] in fams else "none"
     if not has_loading_complete:
         family, supported, basis = (
             "none",
             None,
-            "no loading_complete observed: equipment still at the hold when the clip ends",
+            f"no {end_name} observed: equipment still in the zone when the clip ends",
         )
     elif spark_agrees is False:
         family, supported, basis = (
@@ -109,14 +118,14 @@ def proposed_claim(
     elif supported is None:
         family, basis = "none", "claim window missing: minutes cannot be computed"
     elif supported == 0:
-        family, basis = "none", "loading_complete observed before the claimed delay window"
+        family, basis = "none", f"{end_name} observed before the claimed delay window"
     elif family == "none":
         basis = (
-            f"{supported} min of the claimed window overlap loading in progress, but claimed code "
-            f"{claimed} is not a loading/handling code (31-39)"
+            f"{supported} min of the claimed window overlap the event in progress, but claimed "
+            f"code {claimed} is not in this event's delay-code families ({', '.join(sorted(fams))})"
         )
     else:
-        basis = f"{supported} min of the claimed window overlap loading in progress"
+        basis = f"{supported} min of the claimed window overlap the event in progress"
     return {
         "delay_code_family": family,
         "minutes_supported_by_video": supported,  # None = cannot be computed

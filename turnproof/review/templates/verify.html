@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Verify a packet{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Home</a> › Verify a packet</div>
+<section class="run-head">
+  <div>
+    <h1>Verify a packet</h1>
+    <div class="muted">Anyone can check a TurnProof packet: the airline, an auditor, a judge. Drop the packet JSON; add the frames zip and the event log to check the frame hashes and the chain too. The page runs the same <code>verify_packet.py</code> you can download from the repository and run yourself — no account, no API key, no trust in us.</div>
+  </div>
+</section>
+<div class="grid-2">
+  <section class="card">
+    <h2>Files</h2>
+    <form method="post" action="/verify" enctype="multipart/form-data">
+      <label class="field">Packet JSON <span class="muted small">(required)</span><input type="file" name="packet" accept=".json,application/json" required></label>
+      <label class="field">Evidence frames zip <span class="muted small">(optional — from the packet page "Frames zip"; also contains eventlog.jsonl)</span><input type="file" name="frames" accept=".zip,application/zip"></label>
+      <label class="field">Event log <span class="muted small">(optional, eventlog.jsonl; not needed if it is inside the zip — upload it here to check the chain)</span><input type="file" name="log" accept=".jsonl,.json,text/plain"></label>
+      <label class="field">Public key <span class="muted small">(optional; default: the demo key turnproof-demo-2026)</span><input type="file" name="pub" accept=".pub,.pem"></label>
+      <div class="btns"><button class="btn primary big" type="submit">Run the 7 checks</button></div>
+      <div class="muted small">Checks: schema version · required fields · no machine speculation field · SHA-256 of each redacted frame · event-log hash chain and the packet's anchor in it · packet hash over canonical JSON · Ed25519 signature.</div>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Result</h2>
+    {% if result is none %}
+    <div class="empty small">No packet checked yet.</div>
+    {% else %}
+    {% if result.summary %}<div class="small">Packet <b class="mono">{{ result.summary.packet_id }}</b> · flight {{ result.summary.flight }} · created {{ result.summary.created }} · key {{ result.summary.key }}</div>{% endif %}
+    <div class="btns">{% if result.ok %}<span class="chip good big">VERIFIED</span>{% else %}<span class="chip bad big">TAMPERED OR INVALID</span>{% endif %}
+      {% if not result.with_frames %}<span class="chip warn tiny">frame hashes skipped (no zip)</span>{% endif %}{% if not result.with_log and not result.with_frames %}<span class="chip warn tiny">chain skipped (no log)</span>{% endif %}</div>
+    <pre class="term {{ 'ok' if result.ok else 'bad' }}">$ python {{ result.command }}
+
+{{ result.output }}
+exit code {{ result.exit_code }}</pre>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

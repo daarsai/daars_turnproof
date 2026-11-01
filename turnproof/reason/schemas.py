@@ -20,7 +20,7 @@ class Fact(Strict):
 
 
 class RuleCheck(Strict):
-    claim: Literal["loader_docked", "loader_departed"]
+    claim: Literal["loader_docked", "loader_departed", "equipment_docked", "equipment_departed"]
     agree: bool
     reason: str
 
@@ -71,7 +71,9 @@ class LogEntry(Strict):
 
 
 class Milestone(Strict):
-    name: Literal["loader_docked_start", "loading_complete", "hold_door_closed"]
+    name: str = Field(
+        pattern=r"^[a-z][a-z0-9_]{2,48}$"
+    )  # <event>_docked_start, <event>_complete, hold_door_closed
     t_utc: str | None
     frame_index: int
     method: str

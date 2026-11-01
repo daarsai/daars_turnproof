@@ -18,7 +18,12 @@
       </label>
       <div class="muted small">Re-uploading a clip that was already run costs nothing: model answers are cached by the file's SHA-256.</div>
 
-      <label class="field">Camera view <span class="muted small">(picks the hold-zone preset)</span>
+      <label class="field">Event to detect <span class="muted small">(the event library; same rule, different zone and delay-code family)</span>
+        <select name="event">
+          {% for name, e in events.items() %}<option value="{{ name }}" {% if name == 'loading' %}selected{% endif %}>{{ e.label }} — codes {{ e.delay_code_families | join('/') }}{% if not e.validated %} · defined, not yet validated on footage{% endif %}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">Camera view <span class="muted small">(picks the zone preset)</span>
         <select name="view">
           <option value="front_quarter">front_quarter — camera ahead of the wing, nose toward the jet bridge</option>
           <option value="side">side — true side-on view, nose at the left</option>
@@ -45,9 +50,10 @@
 
     <section class="card">
       <h2>2 · Claim and log</h2>
+      <div class="small" style="margin-bottom:8px">Got the airline's message? <a href="/intake">Claim intake →</a> reads an MVT/DLA line, an email or a photo of the delay report with Muse Spark, you confirm, and it appears in this list.</div>
       <label class="field">Use a saved scenario
         <select name="scenario">
-          {% for s in scenarios %}<option value="{{ s.name }}">{{ s.label }}</option>{% endfor %}
+          {% for s in scenarios %}<option value="{{ s.name }}" {% if s.name == selected %}selected{% endif %}>{{ s.label }}</option>{% endfor %}
         </select>
       </label>
       <details class="manual">

@@ -10,6 +10,7 @@ only review.json and new rows of the hash-chained event log.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -17,6 +18,7 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -27,8 +29,9 @@ from starlette.datastructures import UploadFile
 from turnproof.evidence.canonical import sha256_hex
 from turnproof.evidence.pdf import render_packet_pdf
 from turnproof.pipeline import ref_time
-from turnproof.reason import asr_client
+from turnproof.reason import asr_client, intake
 from turnproof.review import jobs
+from turnproof.review.board import station_board
 from turnproof.review.state_machine import TransitionError
 from turnproof.review.store import RunStore
 
@@ -89,10 +92,14 @@ def run_card(run_id: str) -> dict:
             "stand": packet["stand"],
             "station": packet["station"],
         }
-    if not meta:
-        clip = Path(s.get("clip") or s.get("metrics", {}).get("clip", "")).stem
-        p = Path("scenarios") / clip / "clip_meta.json"
-        meta = json.loads(p.read_text()) if p.exists() else {}
+    clip = Path(s.get("clip") or s.get("metrics", {}).get("clip", "")).stem
+    scen = Path("scenarios") / clip / "clip_meta.json"
+    if not meta and scen.exists():
+        meta = json.loads(scen.read_text())
+    elif meta and "sla_penalty_per_min" not in meta and scen.exists():
+        # runs made before the SLA rate was added to the scenario: take the rate from there
+        m2 = json.loads(scen.read_text())
+        meta = {**meta, **{k: m2[k] for k in ("sla_penalty_per_min", "currency") if k in m2}}
     spark = s.get("spark") or {}
     rcc = spark.get("rule_claim_check") or {}
     return {
@@ -114,6 +121,7 @@ def run_card(run_id: str) -> dict:
         "created": s.get("created_at_utc"),
         "thumb": thumb_for(run_id, s),
         "duration_s": (s.get("source") or {}).get("duration_s"),
+        "event": s.get("event"),
     }
 
 
@@ -237,8 +245,9 @@ def run_verifier(packet_path: Path, run_dir: Path, frames_dir: Path | None = Non
 
 
 def _redirect(url: str, msg: str | None = None, err: str | None = None) -> RedirectResponse:
-    q = f"?msg={quote(msg)}" if msg else (f"?err={quote(err)}" if err else "")
-    return RedirectResponse(url + q, status_code=303)
+    q = f"msg={quote(msg)}" if msg else (f"err={quote(err)}" if err else "")
+    sep = "&" if "?" in url else "?"
+    return RedirectResponse(url + (sep + q if q else ""), status_code=303)
 
 
 # ---- pages ------------------------------------------------------------------------------
@@ -250,6 +259,12 @@ def index(request: Request):
             cards.append(run_card(rid))
         except (OSError, KeyError, ValueError, json.JSONDecodeError):
             continue
+    claims = []
+    for c in cards:
+        s = store.summary(c["run_id"])
+        pk = store.packet(c["run_id"])
+        claims.append(s.get("airline_claim") or (pk or {}).get("airline_claim"))
+    board = station_board(cards, claims)
     # one card per clip: the newest run, with earlier runs of the same clip listed under it
     groups: dict[str, list[dict]] = {}
     for c in cards:
@@ -269,6 +284,7 @@ def index(request: Request):
             runs=cards,
             processing=processing_runs(),
             scenarios=scenario_options(),
+            board=board,
             groups=clip_groups,
             packets=sent + (unsent if preview else []),
             unsent_count=len(unsent),
@@ -463,18 +479,39 @@ def processing_runs() -> list[dict]:
     return sorted(out, key=lambda st: st.get("started_at_utc", ""), reverse=True)
 
 
+def event_options() -> dict:
+    """The event library from config.yaml: name -> {label, zones, delay_code_families, validated}."""
+    cfg = yaml.safe_load(Path("config/config.yaml").read_text())
+    return cfg.get("events") or {}
+
+
+def scenario_dir(name: str) -> Path | None:
+    """Saved scenarios live in scenarios/ (repo, synthetic) and data/scenarios/ (made in the
+    console by claim intake)."""
+    if not _safe_id(name):
+        return None
+    for base in (Path("scenarios"), DATA_DIR / "scenarios"):
+        if (base / name / "clip_meta.json").exists():
+            return base / name
+    return None
+
+
 def scenario_options() -> list[dict]:
     opts = []
-    for meta_path in sorted(Path("scenarios").glob("*/clip_meta.json")):
+    paths = sorted(Path("scenarios").glob("*/clip_meta.json")) + sorted(
+        (DATA_DIR / "scenarios").glob("*/clip_meta.json"), reverse=True
+    )
+    for meta_path in paths:
         meta = json.loads(meta_path.read_text())
         claim_path = meta_path.parent / "airline_claim.json"
         claim = json.loads(claim_path.read_text()) if claim_path.exists() else {}
+        made_here = meta_path.parent.parent == DATA_DIR / "scenarios"
         opts.append(
             {
                 "name": meta_path.parent.name,
                 "label": f"{meta_path.parent.name} · {meta.get('flight_number')} {meta.get('airline')} · "
                 f"{meta.get('station')} stand {meta.get('stand')} · claim code {claim.get('delay_code')}, "
-                f"{claim.get('minutes')} min",
+                f"{claim.get('minutes')} min" + (" · from claim intake" if made_here else ""),
             }
         )
     return opts
@@ -499,6 +536,7 @@ async def _start_upload(
     view: str,
     use_spark: bool,
     manual: dict | None,
+    event: str = "loading",
 ) -> str:
     name = Path(clip.filename or "upload.mp4").name
     stem = (
@@ -519,16 +557,19 @@ async def _start_upload(
             DATA_DIR / "scenarios" / run_id, manual["meta"], manual["claim"], manual["log"]
         )
     else:
-        scen_dir = Path("scenarios") / scenario
-        if not _safe_id(scenario) or not (scen_dir / "clip_meta.json").exists():
+        scen_dir = scenario_dir(scenario)
+        if scen_dir is None:
             raise HTTPException(400, "unknown scenario")
     if view not in jobs.VIEWS:
         raise HTTPException(400, "unknown camera view")
+    if event not in event_options():
+        raise HTTPException(400, "unknown event")
     clip_cfg = {
         "reference_start_utc": _utc(reference_start),
         "speed_factor": float(speed_factor) if speed_factor else None,
         "speed_factor_source": speed_source,
         "view": view,
+        "event": event,
     }
     return jobs.start_run(
         dest, clip_cfg=clip_cfg, scenario_dir=scen_dir, data_dir=DATA_DIR,
@@ -574,7 +615,111 @@ def _manual_from_form(f) -> dict | None:
 @app.get("/upload", response_class=HTMLResponse)
 def upload_form(request: Request):
     return templates.TemplateResponse(
-        request, "upload.html", ctx(request, scenarios=scenario_options(), views=jobs.VIEWS)
+        request,
+        "upload.html",
+        ctx(
+            request,
+            scenarios=scenario_options(),
+            views=jobs.VIEWS,
+            events=event_options(),
+            selected=request.query_params.get("scenario", ""),
+        ),
+    )
+
+
+# ---- claim intake: airline message -> Muse Spark extraction -> operator confirms ----------------
+@app.get("/intake", response_class=HTMLResponse)
+def intake_form(request: Request):
+    return templates.TemplateResponse(request, "intake.html", ctx(request, result=None, form={}))
+
+
+@app.post("/intake/extract", response_class=HTMLResponse)
+async def intake_extract(request: Request):
+    form = await request.form()
+    text = str(form.get("message") or "").strip()
+    photo = form.get("photo")
+    img, mime = None, "image/jpeg"
+    if isinstance(photo, UploadFile) and photo.filename:
+        img = await photo.read()
+        mime = photo.content_type or mime
+    if not text and not img:
+        return _redirect(
+            "/intake", err="paste the airline's message or attach a photo of the report"
+        )
+    try:
+        res = intake.extract_claim(text, img, mime)
+    except RuntimeError as e:  # no API key
+        res = {"ok": False, "claim": None, "error": str(e), "raw": "", "model": intake.MODEL,
+               "prompt_version": intake.INTAKE_PROMPT_VERSION, "tokens_in": 0, "tokens_out": 0,
+               "seconds": 0, "input_sha256": ""}  # fmt: skip
+    local = intake.parse_mvt_locally(text) if text else None
+    fields = {k: str(v) for k, v in form.items() if isinstance(v, str)}
+    return templates.TemplateResponse(
+        request,
+        "intake.html",
+        ctx(request, result=res, local=local, form=fields, message=text, had_photo=bool(img)),
+    )
+
+
+@app.post("/intake/confirm")
+async def intake_confirm(request: Request):
+    f = await request.form()
+
+    def g(k: str, d: str = "") -> str:
+        return str(f.get(k) or d).strip()
+
+    flight = g("flight_number") or "UNKNOWN"
+    slug = "".join(
+        ch if ch.isalnum() else "-" for ch in f"{flight}-{g('flight_date', 'nodate')}"
+    ).lower()
+    name = f"{slug}-{os.urandom(2).hex()}"
+    meta = {
+        "station": g("station") or "XXX",
+        "stand": g("stand") or "?",
+        "flight_number": flight,
+        "flight_date": g("flight_date") or "2026-01-01",
+        "airline": g("airline") or "Airline",
+        "handler": g("handler") or "Handler",
+        "camera_id": g("camera_id") or "stand-cam",
+        "data_label": "synthetic test data",
+        "sla_penalty_per_min": float(g("sla_rate") or 0) or None,
+        "currency": g("currency") or "EUR",
+    }
+    start, end = _utc(g("window_start")), _utc(g("window_end"))
+    claim = {
+        "delay_code": g("delay_code") or "00",
+        "minutes": int(g("minutes") or 0),
+        "source": f"{g('message_type') or 'message'} via Muse Spark claim intake, confirmed by operator",
+    }
+    if start and end:
+        claim["claim_window_utc"] = {"start": start, "end": end}
+    log = [
+        {"milestone": m, "t_utc": _utc(g(k))}
+        for m, k in (("loader_docked_start", "log_docked"), ("loading_complete", "log_complete"),
+                     ("hold_door_closed", "log_door"))
+        if _utc(g(k))
+    ]  # fmt: skip
+    d = jobs.write_scenario(DATA_DIR / "scenarios" / name, meta, claim, log)
+    (d / "intake.json").write_text(
+        json.dumps(
+            {
+                "message": g("message"),
+                "message_sha256": sha256_hex(g("message").encode()),
+                "spark": {
+                    "model": g("spark_model"),
+                    "prompt_version": g("spark_prompt_version"),
+                    "raw": g("spark_raw"),
+                    "confidence": g("spark_confidence"),
+                },
+                "confirmed": {**claim, "flight": meta},
+                "confirmed_at_utc": jobs._now(),
+                "operator": "handler_operator",
+            },
+            indent=1,
+        )
+    )
+    return _redirect(
+        f"/upload?scenario={name}", msg=f"claim confirmed and saved as scenario {name}"
     )
 
 
@@ -594,6 +739,7 @@ async def upload(request: Request):
             str(form.get("view") or "front_quarter"),
             form.get("use_spark") is not None,
             _manual_from_form(form),
+            str(form.get("event") or "loading"),
         )
     except HTTPException as e:
         return _redirect("/upload", err=str(e.detail))
@@ -617,6 +763,7 @@ async def api_upload(request: Request):
         str(form.get("view") or "front_quarter"),
         str(form.get("use_spark") or "1") not in ("0", "false", "no"),
         None,
+        str(form.get("event") or "loading"),
     )
     return {"run_id": run_id, "status": f"/api/runs/{run_id}/status", "page": f"/runs/{run_id}"}
 
@@ -672,6 +819,116 @@ async def statement(request: Request, run_id: str):
         return _redirect(f"/runs/{run_id}", err="record a statement or type one")
     store.set_statement(run_id, stmt)
     return _redirect(f"/runs/{run_id}", msg="statement recorded in the event log")
+
+
+# ---- public verify page: anyone, any packet, no account -----------------------------------------
+@app.get("/verify", response_class=HTMLResponse)
+def verify_page(request: Request):
+    return templates.TemplateResponse(request, "verify.html", ctx(request, result=None))
+
+
+@app.post("/verify", response_class=HTMLResponse)
+async def verify_upload(request: Request):
+    """Packet JSON (required) + optional frames zip / eventlog.jsonl / public key PEM.
+    Runs the same standalone verify_packet.py in a temporary folder and shows its output."""
+    import tempfile
+    import zipfile
+
+    form = await request.form()
+    packet = form.get("packet")
+    if not isinstance(packet, UploadFile) or not packet.filename:
+        return _redirect("/verify", err="choose the packet JSON file first")
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        pk = tdp / "packet.json"
+        pk.write_bytes(await packet.read())
+        frames_dir = None
+        frames = form.get("frames")
+        if isinstance(frames, UploadFile) and frames.filename:
+            z = tdp / "frames.zip"
+            z.write_bytes(await frames.read())
+            frames_dir = tdp / "frames"
+            frames_dir.mkdir()
+            try:
+                with zipfile.ZipFile(z) as zf:
+                    for info in zf.infolist():
+                        name = Path(info.filename).name
+                        if info.is_dir() or not name.endswith(".png") or name.startswith("."):
+                            continue
+                        (frames_dir / name).write_bytes(zf.read(info))
+            except zipfile.BadZipFile:
+                return _redirect("/verify", err="the frames file is not a zip")
+        log_path = None
+        log = form.get("log")
+        if isinstance(log, UploadFile) and log.filename:
+            log_path = tdp / "eventlog.jsonl"
+            log_path.write_bytes(await log.read())
+        pub_path = None
+        pub = form.get("pub")
+        if isinstance(pub, UploadFile) and pub.filename:
+            pub_path = tdp / "key.pub"
+            pub_path.write_bytes(await pub.read())
+        cmd = [sys.executable, str(ROOT / "verify_packet.py"), str(pk)]
+        if frames_dir:
+            cmd += ["--frames", str(frames_dir)]
+        if log_path:
+            cmd += ["--log", str(log_path)]
+        if pub_path:
+            cmd += ["--pub", str(pub_path)]
+        elif os.environ.get("TURNPROOF_PUBLIC_KEY"):
+            cmd += ["--pub", os.environ["TURNPROOF_PUBLIC_KEY"]]
+        r = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True, check=False, cwd=ROOT, timeout=120
+        )
+        shown = " ".join(c.replace(str(tdp) + "/", "") for c in cmd[1:]).replace(
+            str(ROOT) + "/", ""
+        )
+        try:
+            pj = json.loads(pk.read_text())
+            summary = {
+                "packet_id": pj.get("packet_id"),
+                "flight": (pj.get("flight") or {}).get("number"),
+                "created": pj.get("created_at_utc"),
+                "sha": pj.get("packet_sha256"),
+                "key": (pj.get("signature") or {}).get("key_id"),
+            }
+        except (ValueError, AttributeError):
+            summary = None
+    result = {"ok": r.returncode == 0, "exit_code": r.returncode, "output": r.stdout + r.stderr,
+              "command": shown, "summary": summary, "with_frames": frames_dir is not None,
+              "with_log": log_path is not None}  # fmt: skip
+    return templates.TemplateResponse(request, "verify.html", ctx(request, result=result))
+
+
+@app.get("/packets/{packet_id}/frames.zip")
+def packet_frames_zip(packet_id: str):
+    """The redacted evidence frames of a packet, zipped, for verification elsewhere."""
+    import io
+    import zipfile
+
+    from fastapi.responses import Response
+
+    found = store.find_packet(packet_id)
+    if not found:
+        raise HTTPException(404)
+    run_id, packet = found
+    disp = store.run_dir(run_id) / "display"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for e in packet["evidence_frames"]:
+            p = disp / f"{e['id']}.png"
+            if p.exists():
+                zf.write(p, p.name)
+    log = store.run_dir(run_id) / "eventlog.jsonl"
+    if log.exists():
+        zf_extra = zipfile.ZipFile(buf, "a")
+        zf_extra.write(log, "eventlog.jsonl")
+        zf_extra.close()
+    return Response(
+        buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{packet_id}-frames.zip"'},
+    )
 
 
 # ---- files -----------------------------------------------------------------------------------

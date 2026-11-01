@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Claim intake{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Runs</a> › <a href="/upload">Upload clip</a> › Claim intake</div>
+<section class="run-head">
+  <div>
+    <h1>Claim intake</h1>
+    <div class="muted">Airlines don't send JSON. Paste the MVT / DLA telex line, the email, or drop a photo of the delay report. Muse Spark extracts the claim as strict JSON; you check it before it becomes an input to a run. Spark extracts; it never judges the claim.</div>
+  </div>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>1 · The airline's message</h2>
+    <form method="post" action="/intake/extract" enctype="multipart/form-data">
+      <label class="field">Message text <span class="muted small">(MVT / DLA telex, email, free text)</span>
+        <textarea name="message" rows="6" placeholder="MVT&#10;XY123/30.VTABC.BLR&#10;AD1814/1826 EA1935 DEL&#10;DL32/0009&#10;SI LATE LOADING AT STAND D14">{{ message or '' }}</textarea>
+      </label>
+      <label class="field">…or a photo of the delay report <input type="file" name="photo" accept="image/*"></label>
+      <div class="btns"><button class="btn primary" type="submit">Extract with Muse Spark</button></div>
+      <div class="muted small">Costs a fraction of a cent. A deterministic telex parser runs alongside as a cross-check.</div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>2 · Check and confirm</h2>
+    {% if result is none %}
+    <div class="empty small">Nothing extracted yet.</div>
+    {% elif not result.ok %}
+    <div class="banner warn"><b>Spark could not extract a claim.</b> {{ result.error }}</div>
+    {% if local %}<div class="small">The telex parser found: code <b>{{ local.delay_code }}</b>, <b>{{ local.minutes }}</b> min from “{{ local.source_quote }}”. You can confirm those below.</div>{% endif %}
+    {% endif %}
+    {% if result is not none and (result.ok or local) %}
+    {% set c = result.claim or {} %}
+    {% if result.ok %}
+    <div class="small">
+      <span class="chip good">extracted · {{ c.message_type }}</span> confidence <b>{{ '%.2f' % c.confidence }}</b> · from “<span class="mono">{{ c.source_quote }}</span>”
+      {% if local %}· telex parser {% if local.delay_code == c.delay_code and local.minutes == c.minutes %}<span class="chip good tiny">agrees</span>{% else %}<span class="chip bad tiny">differs: {{ local.delay_code }} / {{ local.minutes }} min</span>{% endif %}{% endif %}
+    </div>
+    {% if c.notes %}<p class="reason">{{ c.notes }}</p>{% endif %}
+    {% endif %}
+    <form method="post" action="/intake/confirm" class="decide">
+      <input type="hidden" name="message" value="{{ message or '' }}">
+      <input type="hidden" name="message_type" value="{{ c.message_type if c else 'telex' }}">
+      <input type="hidden" name="spark_model" value="{{ result.model }}">
+      <input type="hidden" name="spark_prompt_version" value="{{ result.prompt_version }}">
+      <input type="hidden" name="spark_raw" value="{{ result.raw }}">
+      <input type="hidden" name="spark_confidence" value="{{ c.confidence if c else '' }}">
+      <h3>Claim</h3>
+      <div class="grid-2 tight">
+        <label class="field">Delay code <input name="delay_code" value="{{ c.delay_code if c else local.delay_code }}" pattern="\d{2}" required></label>
+        <label class="field">Minutes <input type="number" name="minutes" value="{{ c.minutes if c else local.minutes }}" min="0" required></label>
+        <label class="field">Claim window start (UTC) <input type="datetime-local" name="window_start" step="1" value="{{ (c.claim_window_start_utc or '')[:19] if c else '' }}"></label>
+        <label class="field">Claim window end (UTC) <input type="datetime-local" name="window_end" step="1" value="{{ (c.claim_window_end_utc or '')[:19] if c else '' }}"></label>
+      </div>
+      <h3>Flight and contract</h3>
+      <div class="grid-2 tight">
+        <label class="field">Flight number <input name="flight_number" value="{{ c.flight_number or '' if c else '' }}" required></label>
+        <label class="field">Flight date <input type="date" name="flight_date" value="{{ c.flight_date or '' if c else '' }}"></label>
+        <label class="field">Airline <input name="airline" value="{{ c.airline or '' if c else '' }}"></label>
+        <label class="field">Station <input name="station" value="{{ c.station or '' if c else '' }}"></label>
+        <label class="field">Stand <input name="stand" placeholder="D14"></label>
+        <label class="field">Handler <input name="handler" placeholder="Handler Co"></label>
+        <label class="field">Camera id <input name="camera_id" placeholder="stand-d14-01"></label>
+        <label class="field">SLA penalty per minute <input type="number" name="sla_rate" value="40" step="0.01"></label>
+        <label class="field">Currency <input name="currency" value="EUR"></label>
+      </div>
+      <h3>Your milestone log <span class="muted small">(optional)</span></h3>
+      <div class="grid-2 tight">
+        <label class="field">Loader docked (UTC) <input type="datetime-local" name="log_docked" step="1"></label>
+        <label class="field">Loading complete (UTC) <input type="datetime-local" name="log_complete" step="1"></label>
+        <label class="field">Hold door closed (UTC) <input type="datetime-local" name="log_door" step="1"></label>
+      </div>
+      <div class="btns"><button class="btn primary big" type="submit">Confirm claim → go to upload</button></div>
+      <div class="muted small">The message, Spark's raw answer and your confirmed values are kept together (intake.json) with the scenario; the packet records the claim's source as "via Muse Spark claim intake, confirmed by operator".</div>
+    </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

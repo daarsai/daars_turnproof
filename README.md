@@ -52,13 +52,33 @@ flowchart LR
 6. **Compare.** Milestones against the handler log and the airline claim window: *claimed minutes* vs *minutes of the window during which loading was still in progress*. The proposed delay-code family comes from the rule alone.
 7. **Sign.** Packet = canonical JSON → SHA-256 → Ed25519. It carries the head of the event-log chain at build time; later human decisions extend the chain, and the verifier accepts the anchor anywhere in an intact chain.
 
+## Event library
+
+One rule engine, several turnaround events. `config/config.yaml` → `events:` names, for each event, the SAM concept that counts as equipment, the zones (per camera view) where it docks, the milestone names it emits, and the IATA delay-code families a claim must belong to for the video to support it.
+
+| Event | Milestones | Delay-code families | Status |
+| --- | --- | --- | --- |
+| **loading** — loading equipment at the hold | `loader_docked_start` → `loading_complete` | 31–39 | validated on the three clips in this repository |
+| fuelling — fuel truck at the wing | `fuel_truck_docked_start` → `fuelling_complete` | 36 | defined; zone fractions not yet checked on footage |
+| catering — catering truck at the forward door | `catering_docked_start` → `catering_complete` | 37 | defined; zone fractions not yet checked on footage |
+
+Pick the event in the upload form (or `event=` on `POST /api/upload`). An unvalidated event runs the same pipeline and is labelled as unvalidated in the console and in the packet (`models.sam.event`). Adding an event is a config entry plus a zone preset per view — no model change.
+
+## Claim intake
+
+Airlines send MVT / DLA telex lines, emails, or scanned delay reports, not JSON. **Claim intake** (`/intake`) sends the message — text or a photo — to Muse Spark with a strict JSON schema and gets back the delay code, minutes, claim window and flight; a deterministic telex parser runs alongside as a cross-check; the operator confirms before it becomes an input. The message, Spark's raw answer and the confirmed values are stored together with the scenario, and the packet records the claim's source as "via Muse Spark claim intake, confirmed by operator".
+
+## Station board
+
+The handler's front page opens with the numbers a station manager runs on, all computed from the runs: turnarounds reviewed, minutes claimed vs minutes the video supports, **penalty exposure the video does not support** at the SLA rate declared per contract (synthetic in the demo), packets sent / acknowledged / disputed, Spark agreement with the rule, model spend per turnaround.
+
 ## Meta models
 
 | Model | Used for | How | Never does |
 | --- | --- | --- | --- |
 | `sam-3.1` | aircraft box, loading-equipment boxes, person boxes for redaction | Responses API, `input_video` + one noun phrase, boxes parsed from the special-token output, masks ignored | track identity, name equipment types |
-| `muse-spark-1.3` | keyframe facts, hold-door state, agree/disagree with the rule | chat completions, image data URLs, strict `json_schema` output, reasoning effort medium | set a milestone time, decide a claim, choose the delay code |
-| `muse-voice-transcribe-1.0` | optional spoken operator statement (smoke-tested, not in the packet yet) | `/v1/asr/transcribe` multipart | — |
+| `muse-spark-1.3` | keyframe facts, hold-door state, agree/disagree with the rule; **claim intake** (telex / email / report photo → structured claim) | chat completions, image data URLs, strict `json_schema` output, reasoning effort medium | set a milestone time, decide a claim, choose the delay code |
+| `muse-voice-transcribe-1.0` | the operator's spoken statement, transcribed and signed into the packet on Send | `/v1/asr/transcribe` multipart (`request` + `audio` parts) | — |
 
 API responses are cached per clip under `data/cache/` (key = concept + file SHA-256 + request metadata), so re-running a clip costs nothing. First run of a 40 s, 30 fps clip ≈ $0.75 (SAM, 3 video calls) + $0.02 (Spark). Each run writes its own cost estimate to `run_metrics.json` and the console shows it.
 
@@ -76,7 +96,7 @@ make serve                        # console -> http://localhost:8080
 Other targets:
 
 ```bash
-make test                         # 41 offline tests (no API key needed)
+make test                         # offline tests (no API key needed)
 make lint
 make verify PACKET=data/runs/<run>/packets/<id>.json   # all 7 checks
 make tamper PACKET=...            # copy the frames, flip one pixel, expect FAIL
@@ -112,6 +132,7 @@ Only `system`, `handler_operator` and `airline_reviewer` move states. Reject, co
 - Equipment already at the hold when a clip starts gives an **upper bound** for `loader_docked_start`, not a time. A clip that ends while the equipment is away flags `departure cut short by clip end`.
 - Hold-door state is `unknown` on this footage; the camera angle never shows the door clearly. The milestone exists in the schema and is only written when Spark sees a closed door.
 - The hold zone is a configured fraction of the aircraft box per camera view, not learned. A new camera angle needs a preset (five numbers).
+- Only the loading event is validated on footage; fuelling and catering are defined in the event library and labelled unvalidated wherever they appear.
 - No tracking: a second vehicle passing through the zone extends the docked period. Smoothing and gap-merging handle short events; Spark's keyframe check catches the rest, and the operator decides.
 - Accuracy is not claimed. The console shows every number the rule used; the packet records every model and prompt by hash.
 
@@ -125,8 +146,8 @@ verify_packet.py      standalone verifier
 scripts/              smoke tests, key generation, tamper demo, speed-factor estimator
 scenarios/<clip>/     synthetic clip_meta.json, airline_claim.json, handler_log.csv
 config/config.yaml    models, zone presets, rule thresholds, per-clip declarations
-tests/                41 offline tests (hash chain, signing, state machine, zones, rule, parser, packet
-                      round-trip with tamper, console)
+tests/                offline tests: hash chain, signing, state machine, zones, rule, parser, packet
+                      round-trip with tamper, console, upload, intake, event library
 ```
 
 Never committed: `.env`, `keys/*.pem`, `clips/*`, `data/`. Originals are encrypted at rest; the console serves redacted frames only.

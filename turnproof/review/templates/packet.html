@@ -14,6 +14,7 @@
     <span class="state big s-{{ review.state }}">{{ review.state }}</span>
     <a class="btn" href="/packets/{{ packet.packet_id }}.json">Download JSON</a>
     <a class="btn" href="/packets/{{ packet.packet_id }}.pdf">Download PDF</a>
+    <a class="btn" href="/packets/{{ packet.packet_id }}/frames.zip">Frames zip</a>
   </div>
 </section>
 
@@ -72,7 +73,7 @@
       <button class="btn" id="btn-tamper" title="copies the frames, changes one pixel, verifies the copy">Tamper test</button>
     </div>
     <pre id="verify-out" class="term" hidden></pre>
-    <div class="muted small">Same check from any machine: <code>python verify_packet.py {{ packet.packet_id }}.json --frames display/ --log eventlog.jsonl --pub turnproof-demo-2026.pub</code> — standard library + one crypto package, no API key, no account.</div>
+    <div class="muted small">Or on the <a href="/verify">public verify page</a> with the JSON and the frames zip. Same check from any machine: <code>python verify_packet.py {{ packet.packet_id }}.json --frames display/ --log eventlog.jsonl --pub turnproof-demo-2026.pub</code> — standard library + one crypto package, no API key, no account.</div>
 
     <h3>Handler's decision</h3>
     {% if packet.review.decision != 'pending' %}

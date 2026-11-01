@@ -11,7 +11,7 @@
 <section class="run-head">
   <div>
     <h1>{% if card.meta %}{{ card.meta.flight_number }} · {{ card.meta.airline }} · stand {{ card.meta.stand }}{% else %}{{ run_id }}{% endif %}</h1>
-    <div class="muted">run <span class="mono">{{ run_id }}</span> · clip <span class="mono">{{ card.clip }}</span> · camera view <b>{{ s.view or 'default' }}</b> · hold zone used <b>{{ s.zone_used }}</b>
+    <div class="muted">run <span class="mono">{{ run_id }}</span> · clip <span class="mono">{{ card.clip }}</span>{% if s.event %} · event <b>{{ s.event.label }}</b>{% if not s.event.validated %} <span class="chip warn tiny">not validated on footage</span>{% endif %}{% endif %} · camera view <b>{{ s.view or 'default' }}</b> · zone used <b>{{ s.zone_used }}</b>
       {% if ts.speed_factor %} · footage speed ×{{ ts.speed_factor }} ({{ ts.speed_factor_source }}){% endif %}</div>
   </div>
   <div class="chips">
@@ -27,8 +27,8 @@
 frame numbers but no real-world clock time, and no minutes can be computed. The packet says so.</div>
 {% endif %}
 {% if s.status == 'no_candidate' %}
-<div class="banner"><b>Nothing to claim from this clip.</b> Loading equipment was at the hold when the clip started and never left,
-so there is no <em>loading complete</em> moment to put against the airline's delay window. This is the correct outcome, not a failure.</div>
+<div class="banner"><b>Nothing to claim from this clip.</b> Equipment was in the zone when the clip started and never left,
+so there is no <em>{{ (s.event.milestones.end if s.event else 'loading_complete') | replace('_', ' ') }}</em> moment to put against the airline's delay window. This is the correct outcome, not a failure.</div>
 {% endif %}
 
 {% if hero.before or hero.after %}
@@ -47,10 +47,11 @@ so there is no <em>loading complete</em> moment to put against the airline's del
     {% endif %}
     {% endfor %}
   </div>
-  {% set lcm = (s.milestones | selectattr('name', 'equalto', 'loading_complete') | list | first) %}
+  {% set end_name = s.event.milestones.end if s.event else 'loading_complete' %}
+  {% set lcm = (s.milestones | selectattr('name', 'equalto', end_name) | list | first) %}
   {% if lcm %}
   <div class="verdict">
-    <span class="chip good big">loading complete at {{ lcm.t_utc | fmt_t }}</span>
+    <span class="chip good big">{{ end_name | replace('_', ' ') }} at {{ lcm.t_utc | fmt_t }}</span>
     <span>rule confidence <b>{{ '%.2f' % lcm.confidence }}</b></span>
     <span>· Muse Spark {% if rcc.agree is true %}<span class="chip good">agrees</span>{% elif rcc.agree is false %}<span class="chip bad">disagrees</span>{% else %}<span class="chip">not run</span>{% endif %}</span>
     {% if s.proposed_claim and claim %}<span>· airline claims <b>{{ claim.minutes }} min</b>, video supports <b>{% if s.proposed_claim.minutes_supported_by_video is none %}n/a{% else %}{{ s.proposed_claim.minutes_supported_by_video }} min{% endif %}</b></span>{% endif %}

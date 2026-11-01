@@ -12,11 +12,28 @@
   </div>
   <div class="howto">
     <a class="btn primary big upload-btn" href="/upload">Upload clip →</a>
-    <div class="step"><b>1</b> Upload a clip with the claim and your log (or <code>make demo CLIP=…</code>)</div>
+    <div class="step"><b>1</b> <a href="/intake">Read the airline's claim</a> with Muse Spark, then upload the clip with your log</div>
     <div class="step"><b>2</b> Open the card, check the pictures, confirm or reject</div>
     <div class="step"><b>3</b> Send; the airline verifies the signed packet</div>
   </div>
 </section>
+
+{% if runs %}
+<section class="board">
+  <div class="board-head"><h2>Station board <span class="muted small">every number computed from the runs below · money at the SLA penalty rate declared per contract (synthetic in this demo)</span></h2></div>
+  <div class="tiles">
+    <div class="tile"><div class="k">{{ board.runs }}</div><div class="l">turnarounds reviewed</div><div class="s">{{ board.candidates }} with a completed event · {{ board.no_candidate }} nothing to claim</div></div>
+    <div class="tile"><div class="k">{{ board.claimed_min }} <span>min</span></div><div class="l">claimed by airlines</div><div class="s">{{ board.claims }} delay claims received</div></div>
+    <div class="tile"><div class="k">{{ board.supported_min }} <span>min</span></div><div class="l">supported by video</div><div class="s">{{ board.unsupported_min }} min claimed but not supported ({{ board.computable }} computable)</div></div>
+    <div class="tile accent"><div class="k">{% if board.currency %}{{ board.currency }} {{ '{:,.0f}'.format(board.exposure) }}{% else %}—{% endif %}</div><div class="l">penalty exposure the video does not support</div><div class="s">(claimed − supported) × SLA rate per minute</div></div>
+    <div class="tile"><div class="k">{{ board.sent }}</div><div class="l">packets sent</div><div class="s">{{ board.acknowledged }} acknowledged · {{ board.disputed }} disputed · {{ board.under_review }} awaiting handler · {{ board.rejected }} rejected</div></div>
+    <div class="tile"><div class="k">{% if board.spark_checked %}{{ board.spark_agree }}/{{ board.spark_checked }}{% else %}—{% endif %}</div><div class="l">Spark agrees with the rule</div><div class="s">model spend ${{ '%.3f' % board.model_spend }} total · ${{ '%.3f' % board.spend_per_run }} per turnaround</div></div>
+  </div>
+  {% if board.computable and board.currency %}
+  <div class="board-scale muted small">At this rate, a station handling 100 such claims would see <b>{{ board.currency }} {{ '{:,.0f}'.format(board.exposure / board.computable * 100) }}</b> of claimed penalties unsupported by video — each one a packet the airline can verify instead of an argument.</div>
+  {% endif %}
+</section>
+{% endif %}
 
 {% if processing %}
 <div class="cards">
@@ -51,7 +68,7 @@
     </div>
     <div class="rcard-body">
       <div class="rcard-title">{% if r.meta %}{{ r.meta.flight_number }} · {{ r.meta.airline }} · stand {{ r.meta.stand }}{% else %}{{ r.run_id }}{% endif %}</div>
-      <div class="muted small">{{ r.clip }} · {{ r.view }} view{% if r.duration_s %} · {{ r.duration_s }} s{% endif %} · run <span class="mono">{{ r.run_id }}</span></div>
+      <div class="muted small">{{ r.clip }} · {{ r.view }} view{% if r.duration_s %} · {{ r.duration_s }} s{% endif %}{% if r.event %} · {{ r.event.label }}{% endif %} · run <span class="mono">{{ r.run_id }}</span></div>
       <div class="rcard-ms">
         {% for m in r.milestones %}<div><span class="dot"></span><b>{{ m.name | replace('_', ' ') }}</b> <span class="mono">{{ m.t_utc | fmt_t }}</span></div>
         {% else %}<div class="muted">equipment at the hold for the whole clip: nothing to claim</div>{% endfor %}

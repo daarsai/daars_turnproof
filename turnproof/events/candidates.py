@@ -72,6 +72,7 @@ def milestones_for_zone(
     fps: float,
     nose_right: bool = False,
     speed: float | None = None,
+    names: tuple[str, str] = ("loader_docked_start", "loading_complete"),
 ) -> tuple[list[MilestoneHit], list[Cycle]]:
     rules = cfg["rules"]
     logic_fps = float(cfg.get("sampling", {}).get("logic_fps", 2))
@@ -87,6 +88,7 @@ def milestones_for_zone(
         merge_gap=_frames(_video_s(rules["merge_gap_real_s"], speed, floor, cap * 2), fps, step)
         * step,  # cycle boundaries are frame indices
         end_floor=_frames(floor, fps, step),
+        names=names,
     )
 
 
@@ -98,13 +100,17 @@ def best_zone(
     nose_right: bool = False,
     zones_enabled: list[str] | None = None,
     speed: float | None = None,
+    milestone_names: tuple[str, str] = ("loader_docked_start", "loading_complete"),
 ) -> tuple[str, list[MilestoneHit], dict[str, list[Cycle]]]:
-    """Pick the hold zone with the longest complete docked->complete stay."""
-    names = [z for z in cfg["zones"] if z.endswith("_hold")]
+    """Pick the zone (of the event's zones) with the longest complete docked->departed stay."""
+    names = [z for z in cfg["zones"] if z.endswith("_hold")] if not zones_enabled else []
     if zones_enabled:
-        names = [z for z in names if z in zones_enabled]
+        names = [z for z in cfg["zones"] if z in zones_enabled]
     results = {
-        z: milestones_for_zone(vehicles, aircraft, cfg, z, fps, nose_right, speed) for z in names
+        z: milestones_for_zone(
+            vehicles, aircraft, cfg, z, fps, nose_right, speed, names=milestone_names
+        )
+        for z in names
     }
     all_cycles = {z: r[1] for z, r in results.items()}
 
