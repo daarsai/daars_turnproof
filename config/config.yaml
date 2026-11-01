@@ -15,8 +15,9 @@ sampling:
 # that camera angle is simply not defined for that view.
 zone_presets:
   front_quarter:   # camera ahead of the wing, nose toward the jet bridge; the wing sweeps across
-                   # the box, so the forward hold sits left-of-centre low in the box (clip1, clip3)
-    forward_hold: {x0: 0.08, x1: 0.42, y0: 0.45, y1: 0.95, pad_out: 0.35}
+                   # the box; the forward hold door sits just ahead of the wing root, low in the box
+                   # (clip1, clip3). Checked against the saved SAM boxes of both clips.
+    forward_hold: {x0: 0.15, x1: 0.62, y0: 0.50, y1: 0.95, pad_out: 0.20}
   side:            # true side-on view, nose at the LEFT of the frame
     forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
     aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}

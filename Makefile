@@ -1,10 +1,12 @@
 .PHONY: setup keys test lint smoke-sam smoke-spark smoke-asr frames serve demo replay verify tamper metrics
 
-PY ?= python3
+# SYS_PY is used once, to create the venv; everything else runs inside the venv.
+SYS_PY ?= python3
 VENV_PY = .venv/bin/python
+PY ?= $(VENV_PY)
 
 setup:
-	$(PY) -m venv .venv && . .venv/bin/activate && pip install -U pip && pip install -e ".[dev]"
+	$(SYS_PY) -m venv .venv && . .venv/bin/activate && pip install -U pip && pip install -e ".[dev]"
 	@test -f .env || cp .env.example .env
 	$(MAKE) keys
 
@@ -12,10 +14,10 @@ keys:
 	.venv/bin/python scripts/gen_keys.py
 
 lint:
-	ruff check . && ruff format --check .
+	.venv/bin/ruff check . && .venv/bin/ruff format --check .
 
 test:
-	pytest -q
+	$(PY) -m pytest -q
 
 # ---- Day 0 smoke tests (need MODEL_API_KEY in .env) ----
 frames:            # make frames CLIP=clips/clip1.mp4  -> data/frames/clip1/*.png (1 fps)

@@ -31,8 +31,7 @@ def _rect(img, box: Box, colour, thick: int = 2, dashed: bool = False) -> None:
     if not dashed:
         cv2.rectangle(img, (x1, y1), (x2, y2), colour, thick)
         return
-    # dashed rectangle: short segments along each edge
-    step = 14
+    step = 16
     for x in range(x1, x2, step):
         cv2.line(img, (x, y1), (min(x + step // 2, x2), y1), colour, thick)
         cv2.line(img, (x, y2), (min(x + step // 2, x2), y2), colour, thick)
@@ -41,12 +40,27 @@ def _rect(img, box: Box, colour, thick: int = 2, dashed: bool = False) -> None:
         cv2.line(img, (x2, y), (x2, min(y + step // 2, y2)), colour, thick)
 
 
-def _label(img, text: str, x: int, y: int, colour) -> None:
-    font, scale, thick = cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+def _label(img, text: str, x: int, y: int, colour, scale: float = 0.62) -> None:
+    """Filled tag with its top-left corner at (x, y); kept inside the image."""
+    font, thick = cv2.FONT_HERSHEY_SIMPLEX, 2
     (tw, th), _ = cv2.getTextSize(text, font, scale, thick)
-    y = max(th + 6, y)
-    cv2.rectangle(img, (x, y - th - 6), (x + tw + 8, y + 2), colour, -1)
-    cv2.putText(img, text, (x + 4, y - 3), font, scale, WHITE, thick, cv2.LINE_AA)
+    h, w = img.shape[:2]
+    x = max(0, min(x, w - tw - 10))
+    y = max(0, min(y, h - th - 10))
+    cv2.rectangle(img, (x, y), (x + tw + 10, y + th + 10), colour, -1)
+    cv2.putText(img, text, (x + 5, y + th + 4), font, scale, WHITE, thick, cv2.LINE_AA)
+
+
+def _fill(img, box: Box, colour, alpha: float) -> None:
+    x1, y1, x2, y2 = (round(v) for v in box)
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
+    if x2 <= x1 or y2 <= y1:
+        return
+    roi = img[y1:y2, x1:x2]
+    tint = roi.copy()
+    tint[:] = colour
+    cv2.addWeighted(tint, alpha, roi, 1 - alpha, 0, roi)
 
 
 def draw_overlay(
@@ -59,29 +73,39 @@ def draw_overlay(
     tau: float,
     aircraft_iou_reject: float = 0.5,
 ) -> Path | None:
-    """Aircraft box (navy, dashed), hold zones (orange; the active one solid), vehicle boxes
-    (green when overlapping the active zone >= tau, grey otherwise). Returns None if the
-    display frame is missing."""
+    """Aircraft box (navy, dashed), hold zones (orange, the active one tinted), vehicles:
+    green + label when overlapping the active zone >= tau, thin grey box otherwise.
+    Returns None if the display frame is missing."""
     img = cv2.imread(str(display_png))
     if img is None:
         return None
     if aircraft_box:
         _rect(img, aircraft_box, NAVY, 2, dashed=True)
-        _label(img, "aircraft (SAM 3.1)", int(aircraft_box[0]), int(aircraft_box[1]) - 4, NAVY)
+        _label(img, "aircraft  SAM 3.1", int(aircraft_box[0]), int(aircraft_box[1]) - 30, NAVY)
     for name, z in zones.items():
         active = name == active_zone
+        if active:
+            _fill(img, z, ORANGE, 0.14)
         _rect(img, z, ORANGE, 3 if active else 1, dashed=not active)
-        tag = f"zone: {name}" + (" (used)" if active else "")
-        _label(img, tag, int(z[0]) + 3, int(z[1]) + 18, ORANGE)
+        _label(img, f"hold zone  {name}", int(z[0]) + 4, int(z[1]) + 4, ORANGE, 0.58)
+    n_in, best_c = 0, 0.0
     for d in vehicles:
         if aircraft_box and iou(d.box, aircraft_box) >= aircraft_iou_reject:
             continue  # the aircraft itself, mislabelled as a vehicle
         ov = overlap_ratio(d.box, zones[active_zone]) if active_zone in zones else 0.0
-        inside = ov >= tau
-        _rect(img, d.box, GREEN if inside else GREY, 2 if inside else 1)
-        conf = f" c={d.c:.2f}" if d.c is not None else ""
-        txt = f"vehicle{conf}" + (f" in zone {ov:.0%}" if inside else "")
-        _label(img, txt, int(d.x1), int(d.y1) - 4, GREEN if inside else GREY)
+        if ov >= tau:
+            n_in += 1
+            best_c = max(best_c, d.c or 0.0)
+            _rect(img, d.box, GREEN, 3)
+        else:
+            _rect(img, d.box, GREY, 1)
+    if active_zone in zones:
+        z = zones[active_zone]
+        if n_in:
+            txt = f"equipment at hold: {n_in} vehicle box{'es' if n_in > 1 else ''}  max c={best_c:.2f}"
+            _label(img, txt, int(z[0]) + 4, int(z[1]) + 36, GREEN, 0.58)
+        else:
+            _label(img, "zone clear: no equipment", int(z[0]) + 4, int(z[1]) + 36, ORANGE, 0.58)
     cv2.imwrite(str(out_png), img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
     return out_png
 

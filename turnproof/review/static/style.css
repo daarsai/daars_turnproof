@@ -125,3 +125,29 @@ video { width: 100%; background: #000; border-radius: 4px; display: block; }
 .num span { font-size: 15px; font-weight: 500; color: var(--muted); }
 .term { font-family: var(--mono); font-size: 12.5px; background: #0F1720; color: #D7E0EA; padding: 12px 14px; border-radius: 4px; white-space: pre-wrap; margin: 6px 0 10px; border-left: 4px solid #3B5680; }
 .term.ok { border-left-color: #27AE60; } .term.bad { border-left-color: #E74C3C; }
+
+/* run cards (front page) */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 18px; }
+.rcard { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; color: inherit; text-decoration: none; }
+.rcard:hover { border-color: var(--navy); box-shadow: 0 2px 10px rgba(11,37,69,0.12); }
+.rcard-img { position: relative; background: #000; }
+.rcard-img img { width: 100%; height: auto; display: block; }
+.noimg { color: #9AA6B5; padding: 60px; text-align: center; }
+.rcard-badges { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; }
+.rcard-badges .state { background: #fff; }
+.rcard-body { padding: 12px 14px 10px; }
+.rcard-title { font-size: 17px; font-weight: 650; color: var(--navy); }
+.rcard-ms { margin: 8px 0; font-size: 14px; }
+.rcard-ms .dot { display: inline-block; width: 8px; height: 8px; background: var(--orange); border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+.rcard-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; white-space: nowrap; border-top: 1px solid var(--line); padding-top: 8px; font-size: 13px; color: var(--muted); }
+
+/* hero pair (run page) */
+.hero-card { border-top: 4px solid var(--orange); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 1000px) { .pair { grid-template-columns: 1fr; } }
+.pair-item { margin: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #000; cursor: pointer; }
+.pair-item img { width: 100%; height: auto; display: block; }
+.pair-item figcaption { background: #fff; padding: 10px 12px; font-size: 13.5px; }
+.pair-title { font-weight: 650; color: var(--navy); font-size: 15px; }
+.verdict { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; font-size: 14.5px; }
+.grid-2.tight { gap: 24px; margin: 0; align-items: start; }

@@ -6,13 +6,13 @@
 <section class="hero">
   <div>
     <h1>Turnaround runs</h1>
-    <p class="lead">Each run is one uploaded clip. SAM 3.1 finds the aircraft and any loading equipment at the hold;
-    a plain rule turns that into <em>equipment docked → loading complete</em>; Muse Spark reviews the key frames and
-    flags; you decide; the packet is hashed and signed.</p>
+    <p class="lead">One card per uploaded clip. The picture is the moment the rule found: loading equipment gone from the
+    hold zone. SAM 3.1 draws the boxes, a plain rule reads the timeline, Muse Spark checks the key frames and flags, you decide,
+    and the packet is hashed and signed.</p>
   </div>
   <div class="howto">
     <div class="step"><b>1</b> Run a clip<br><code>make demo CLIP=clips/clip1.mp4</code></div>
-    <div class="step"><b>2</b> Review it here, confirm or reject</div>
+    <div class="step"><b>2</b> Open the card, check the pictures, confirm or reject</div>
     <div class="step"><b>3</b> Send; the airline verifies the signed packet</div>
   </div>
 </section>
@@ -20,66 +20,71 @@
 {% if not runs %}
 <div class="empty">No runs yet. In a terminal: <code>make demo CLIP=clips/clip1.mp4</code>, then refresh.</div>
 {% else %}
-<table class="runs">
-  <thead><tr>
-    <th>Run</th><th>Flight / stand</th><th>Result</th><th>Milestones</th><th>Spark check</th><th>Review state</th><th>Packet</th><th>Cost</th>
-  </tr></thead>
-  <tbody>
+<div class="cards">
   {% for r in runs %}
-  <tr>
-    <td><a class="strong" href="/runs/{{ r.run_id }}">{{ r.run_id }}</a><div class="muted">{{ r.clip }} · {{ r.view }} view · {{ r.created | short(16) }}</div></td>
-    <td>{% if r.meta %}<b>{{ r.meta.flight_number }}</b> {{ r.meta.airline }}<div class="muted">{{ r.meta.station }} · stand {{ r.meta.stand }}</div>{% else %}—{% endif %}</td>
-    <td>
-      {% if r.status == 'candidate' %}<span class="chip good">candidate</span>
-      {% elif r.status == 'candidate_unsynced' %}<span class="chip warn">candidate · unsynced</span>
-      {% else %}<span class="chip">no candidate</span>{% endif %}
-      <div class="muted">zone {{ r.zone }}</div>
-    </td>
-    <td>{% for m in r.milestones %}<div class="mono small">{{ m.name }} <span class="muted">{{ m.t_utc | fmt_t }}</span></div>{% else %}<span class="muted">equipment never left the hold</span>{% endfor %}</td>
-    <td>
-      {% if r.spark_ok and r.spark_agree is true %}<span class="chip good">agrees</span>
-      {% elif r.spark_ok and r.spark_agree is false %}<span class="chip bad">disagrees</span>
-      {% elif r.spark_ok %}<span class="chip">reviewed</span>
-      {% else %}<span class="chip">not run</span>{% endif %}
-      {% if r.spark_conf is not none %}<div class="muted">conf {{ '%.2f' % r.spark_conf }}</div>{% endif %}
-    </td>
-    <td><span class="state s-{{ r.review.state }}">{{ r.review.state }}</span></td>
-    <td>{% if r.packet_id %}<a href="/packets/{{ r.packet_id }}" class="mono small">{{ r.packet_id }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    <td class="mono small">{% if r.cost is not none %}${{ '%.3f' % r.cost }}{% endif %}</td>
-  </tr>
+  <a class="rcard" href="/runs/{{ r.run_id }}">
+    <div class="rcard-img">
+      {% if r.thumb %}<img src="{{ r.thumb }}" alt="{{ r.run_id }}" loading="lazy">{% else %}<div class="noimg">no frames kept</div>{% endif %}
+      <div class="rcard-badges">
+        {% if r.status == 'candidate' %}<span class="chip good">candidate event</span>
+        {% elif r.status == 'candidate_unsynced' %}<span class="chip warn">candidate · unsynced</span>
+        {% else %}<span class="chip">no candidate</span>{% endif %}
+        <span class="state s-{{ r.review.state }}">{{ r.review.state }}</span>
+      </div>
+    </div>
+    <div class="rcard-body">
+      <div class="rcard-title">{% if r.meta %}{{ r.meta.flight_number }} · {{ r.meta.airline }} · stand {{ r.meta.stand }}{% else %}{{ r.run_id }}{% endif %}</div>
+      <div class="muted small">{{ r.clip }} · {{ r.view }} view{% if r.duration_s %} · {{ r.duration_s }} s{% endif %} · run <span class="mono">{{ r.run_id }}</span></div>
+      <div class="rcard-ms">
+        {% for m in r.milestones %}<div><span class="dot"></span><b>{{ m.name | replace('_', ' ') }}</b> <span class="mono">{{ m.t_utc | fmt_t }}</span></div>
+        {% else %}<div class="muted">equipment at the hold for the whole clip: nothing to claim</div>{% endfor %}
+      </div>
+      <div class="rcard-foot">
+        <span>Spark:
+          {% if r.spark_ok and r.spark_agree is true %}<span class="chip good tiny">agrees</span>
+          {% elif r.spark_ok and r.spark_agree is false %}<span class="chip bad tiny">disagrees</span>
+          {% elif r.spark_ok %}<span class="chip tiny">reviewed</span>
+          {% else %}<span class="chip tiny">not run</span>{% endif %}</span>
+        {% if r.packet_id %}<span class="mono tiny">{{ r.packet_id }}</span>{% endif %}
+        <span class="mono tiny muted">{% if r.cost is not none %}${{ '%.3f' % r.cost }}{% endif %} · {{ r.created | short(16) }}</span>
+      </div>
+    </div>
+  </a>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endif %}
 
 {% else %}
 <section class="hero">
   <div>
     <h1>Evidence packets</h1>
-    <p class="lead">Packets the ground handler has produced for your delay claims. Open one to see the key frames,
-    the milestone times, the discrepancy table and the model facts, then verify the signature and hashes yourself —
-    the verifier is a standalone script, no account needed.</p>
+    <p class="lead">Packets the ground handler produced for your delay claims. Open one to see the key frames, the milestone
+    times, the discrepancy table and the model facts, then press <b>Verify</b>: the check runs the same standalone script you can
+    run yourself, no account needed.</p>
   </div>
 </section>
 {% if not packets %}
 <div class="empty">No packets yet.</div>
 {% else %}
-<table class="runs">
-  <thead><tr><th>Packet</th><th>Flight / stand</th><th>Airline claim</th><th>Video supports</th><th>State</th></tr></thead>
-  <tbody>
+<div class="cards">
   {% for r in packets %}
-  <tr>
-    <td><a class="strong mono" href="/packets/{{ r.packet_id }}">{{ r.packet_id }}</a><div class="muted">{{ r.created | short(16) }}</div></td>
-    <td><b>{{ r.meta.flight_number }}</b> {{ r.meta.airline }}<div class="muted">{{ r.meta.station }} · stand {{ r.meta.stand }}</div></td>
-    <td class="mono small">{% if r.proposed %}see packet{% endif %}</td>
-    <td>{% if r.proposed %}<b>{{ r.proposed.delay_code_family }}</b> · {% if r.proposed.minutes_supported_by_video is none %}n/a{% else %}{{ r.proposed.minutes_supported_by_video }} min{% endif %}
-      <div class="muted">{{ r.proposed.basis }}</div>{% endif %}</td>
-    <td><span class="state s-{{ r.review.state }}">{{ r.review.state }}</span>
-      {% if r.review.state in ('UNDER_REVIEW','CONFIRMED','CANDIDATE') %}<div class="muted">not yet sent by handler</div>{% endif %}</td>
-  </tr>
+  <a class="rcard" href="/packets/{{ r.packet_id }}">
+    <div class="rcard-img">
+      {% if r.thumb %}<img src="{{ r.thumb }}" alt="{{ r.packet_id }}" loading="lazy">{% endif %}
+      <div class="rcard-badges"><span class="state s-{{ r.review.state }}">{{ r.review.state }}</span></div>
+    </div>
+    <div class="rcard-body">
+      <div class="rcard-title">{{ r.meta.flight_number }} · {{ r.meta.airline }} · stand {{ r.meta.stand }}</div>
+      <div class="muted small mono">{{ r.packet_id }} · {{ r.created | short(16) }}</div>
+      {% if r.proposed %}
+      <div class="rcard-ms"><div>video supports <b>{{ r.proposed.delay_code_family }}</b> · {% if r.proposed.minutes_supported_by_video is none %}<b>n/a</b>{% else %}<b>{{ r.proposed.minutes_supported_by_video }} min</b>{% endif %}</div>
+      <div class="muted small">{{ r.proposed.basis }}</div></div>
+      {% endif %}
+      <div class="rcard-foot"><span class="muted small">{% if r.review.state in ('UNDER_REVIEW','CONFIRMED','CANDIDATE') %}not yet sent by the handler{% else %}&nbsp;{% endif %}</span></div>
+    </div>
+  </a>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endif %}
 {% endif %}
 {% endblock %}

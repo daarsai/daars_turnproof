@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from turnproof.evidence.pdf import render_packet_pdf
+from turnproof.pipeline import ref_time
 from turnproof.review.state_machine import TransitionError
 from turnproof.review.store import RunStore
 
@@ -104,7 +105,67 @@ def run_card(run_id: str) -> dict:
         "time_sync": s.get("time_sync", {}),
         "cost": (s.get("metrics") or {}).get("est_cost_usd"),
         "created": s.get("created_at_utc"),
+        "thumb": thumb_for(run_id, s),
+        "duration_s": (s.get("source") or {}).get("duration_s"),
     }
+
+
+def _img_url(run_id: str, fid: str) -> str | None:
+    disp = store.run_dir(run_id) / "display"
+    if (disp / f"{fid}_overlay.png").exists():
+        return f"/files/{run_id}/display/{fid}_overlay.png"
+    if (disp / f"{fid}.png").exists():
+        return f"/files/{run_id}/display/{fid}.png"
+    return None
+
+
+def _milestone_frame(s: dict, name: str) -> str | None:
+    m = next((m for m in s.get("milestones", []) if m["name"] == name), None)
+    return (m or {}).get("evidence_frames", [None])[0]
+
+
+def hero_frames(run_id: str, s: dict) -> dict:
+    """The two pictures that tell the story: equipment at the hold, then the hold clear
+    (or, with no candidate, clip start and clip end with the equipment still there)."""
+    overlays = sorted(s.get("overlays") or {})
+    kf = s.get("keyframe_ids") or []
+    lc = _milestone_frame(s, "loading_complete")
+    if lc:
+        before = kf[0] if kf else _milestone_frame(s, "loader_docked_start")
+        after = lc
+        titles = ("Equipment at the hold", "Hold clear: loading complete")
+    else:
+        before = overlays[0] if overlays else "f00000"
+        after = overlays[-1] if overlays else None
+        titles = ("Clip start", "Clip end: equipment still at the hold")
+    fps = (s.get("source") or {}).get("fps") or 24.0
+
+    def one(fid, title):
+        if not fid:
+            return None
+        url = _img_url(run_id, fid)
+        if not url:
+            return None
+        idx = int(fid[1:6]) if fid[1:6].isdigit() else 0
+        m = next((m for m in s.get("milestones", []) if fid in m.get("evidence_frames", [])), None)
+        ts = s.get("time_sync") or {}
+        t_utc = (m or {}).get("t_utc") or ref_time(
+            ts.get("reference_start_utc"), idx / fps, ts.get("speed_factor")
+        )
+        return {"id": fid, "img": url, "title": title, "frame_index": idx, "t_s": idx / fps,
+                "t_utc": t_utc, "milestone": (m or {}).get("name")}  # fmt: skip
+
+    return {"before": one(before, titles[0]), "after": one(after, titles[1])}
+
+
+def thumb_for(run_id: str, s: dict) -> str | None:
+    lc = _milestone_frame(s, "loading_complete")
+    if lc and _img_url(run_id, lc):
+        return _img_url(run_id, lc)
+    overlays = sorted(s.get("overlays") or {})
+    if overlays:
+        return _img_url(run_id, overlays[len(overlays) // 2])
+    return _img_url(run_id, "f00000")
 
 
 def evidence_list(run_id: str, s: dict, packet: dict | None) -> list[dict]:
@@ -155,11 +216,11 @@ def run_verifier(packet_path: Path, run_dir: Path, frames_dir: Path | None = Non
     cmd = [
         sys.executable,
         str(ROOT / "verify_packet.py"),
-        str(packet_path),
+        str(packet_path.resolve()),
         "--frames",
-        str(frames_dir or run_dir / "display"),
+        str((frames_dir or run_dir / "display").resolve()),
         "--log",
-        str(run_dir / "eventlog.jsonl"),
+        str((run_dir / "eventlog.jsonl").resolve()),
     ]
     if os.environ.get("TURNPROOF_PUBLIC_KEY"):
         cmd += ["--pub", os.environ["TURNPROOF_PUBLIC_KEY"]]
@@ -217,6 +278,7 @@ def run_page(request: Request, run_id: str):
             packet=packet,
             evidence=evidence,
             context=context_frames(run_id, s, evidence),
+            hero=hero_frames(run_id, s),
             occupancy=store.occupancy(run_id),
             review=store.review(run_id),
             actions=store.available_actions(run_id, role),
@@ -314,7 +376,11 @@ def api_tamper(packet_id: str):
     if not found:
         raise HTTPException(404)
     run_id, _ = found
-    cmd = [sys.executable, str(ROOT / "scripts" / "tamper_demo.py"), str(store.packet_path(run_id))]
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "tamper_demo.py"),
+        str(store.packet_path(run_id).resolve()),
+    ]
     r = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=ROOT, timeout=180)
     return JSONResponse(
         {
