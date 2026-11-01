@@ -18,6 +18,15 @@
   </div>
 </section>
 
+{% if station %}
+<div class="station-strip">
+  <div><div class="k">{{ station.cameras }} stand camera{{ 's' if station.cameras != 1 }}</div><div class="muted small">stands {{ station.stands | join(', ') if station.stands else '—' }}{% if station.demo %} · demo registry{% endif %}</div></div>
+  <div><div class="k">{{ station.flights }} flights in the feed</div><div class="muted small">{{ station.windows }} capture window{{ 's' if station.windows != 1 }} on camera stands · {{ station.claims_on_file }} with a claim on file</div></div>
+  <div>{% if station.due %}<div class="k">On blocks now: {{ station.due | join(', ') }}</div><div class="muted small">recording can start</div>{% elif station.next %}<div class="k">Next: {{ station.next.flight.flight_number }} at {{ station.next.camera.stand }}</div><div class="muted small">on-block {{ station.next.start_utc | fmt_t }}</div>{% else %}<div class="k">Replayed feed</div><div class="muted small">windows are started by hand in the demo</div>{% endif %}</div>
+  <a class="btn primary" href="/station">Open station →</a>
+</div>
+{% endif %}
+
 {% if runs %}
 <section class="board">
   <div class="board-head"><h2>Station board <span class="muted small">every number computed from the runs below · money at the SLA penalty rate declared per contract (synthetic in this demo)</span></h2></div>

@@ -66,7 +66,7 @@
     {% endif %}
 
     <h3>Live arrivals from ADS-B <span class="muted small">OpenSky Network, anonymous API · landing times only; stands and on-block come from the AODB</span></h3>
-    <form id="adsb-form" class="inline"><input name="icao" value="VOBL" class="secs" style="width:80px" title="ICAO airport"> <button class="btn small-btn" type="submit">Fetch last 2 h</button> <span id="adsb-status" class="muted small"></span></form>
+    <form id="adsb-form" class="inline"><input name="icao" value="VOBL" class="secs" style="width:80px" title="ICAO airport"> <button class="btn small-btn" type="submit">Fetch last 6 h</button> <span id="adsb-status" class="muted small"></span></form>
     <div id="adsb-out"></div>
   </section>
 
@@ -119,7 +119,7 @@
       const r = await fetch('/api/station/arrivals?icao=' + encodeURIComponent(f.icao.value));
       const j = await r.json();
       if (!j.ok) { st.textContent = j.error; return; }
-      st.textContent = j.flights.length + ' arrivals at ' + j.airport + ' (' + j.source + ')';
+      st.textContent = j.note ? j.note : (j.flights.length + ' arrivals at ' + j.airport + ' (' + j.source + ')');
       if (!j.flights.length) return;
       let h = '<table class="disc"><thead><tr><th>Callsign</th><th>Landed (UTC)</th><th>Stand</th><th>On-block</th></tr></thead><tbody>';
       j.flights.slice(0, 12).forEach(x => { h += `<tr><td class="mono">${x.flight_number}</td><td class="mono small">${(x.landed_utc||'').slice(11,19)}Z</td><td class="muted small">from AODB</td><td class="muted small">from AODB</td></tr>`; });

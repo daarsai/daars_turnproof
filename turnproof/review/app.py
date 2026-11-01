@@ -288,6 +288,7 @@ def index(request: Request):
             processing=processing_runs(),
             scenarios=scenario_options(),
             board=board,
+            station=station_strip(),
             groups=clip_groups,
             packets=sent + (unsent if preview else []),
             unsent_count=len(unsent),
@@ -964,6 +965,24 @@ def placeholder_scenario(
     return jobs.write_scenario(DATA_DIR / "scenarios" / run_id, meta, claim, [])
 
 
+def station_strip() -> dict:
+    cams = load_station_cameras()
+    fl = load_station_flights()
+    windows = flights_mod.plan(fl, cams)
+    due = [w for w in windows if w.state == "due"]
+    nxt = sorted((w for w in windows if w.state == "planned"), key=lambda w: w.start_utc)
+    return {
+        "cameras": len(cams),
+        "stands": sorted({c.stand for c in cams}),
+        "flights": len(fl),
+        "windows": len(windows),
+        "due": [w.flight.flight_number for w in due],
+        "next": nxt[0] if nxt else None,
+        "claims_on_file": sum(1 for f in fl if scenario_for_flight(f.flight_number, f.flight_date)),
+        "demo": not cameras_path().exists(),
+    }
+
+
 @app.get("/station", response_class=HTMLResponse)
 def station_page(request: Request):
     cams = load_station_cameras()
@@ -1087,11 +1106,28 @@ def api_station_plan():
 
 
 @app.get("/api/station/arrivals")
-def api_station_arrivals(icao: str = "VOBL", hours: float = 2.0, iata: str = "BLR"):
+def api_station_arrivals(icao: str = "VOBL", hours: float = 6.0, iata: str = "BLR"):
     """Live arrivals from ADS-B (OpenSky, anonymous): landing times only; stands and on-block
     times come from the AODB. Errors are returned, not hidden."""
     try:
         fl = flights_mod.opensky_arrivals(icao.upper(), hours, iata.upper())
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:  # OpenSky answers 404 when it has nothing in the window
+            note = (
+                f"OpenSky reports no arrivals at {icao.upper()} in the last {hours:g} h "
+                "(anonymous data is delayed; try a longer window or a busier airport such as EGLL)"
+            )
+            return {
+                "ok": True,
+                "source": "adsb_opensky",
+                "airport": icao.upper(),
+                "flights": [],
+                "note": note,
+            }
+        return JSONResponse(
+            {"ok": False, "error": f"HTTP {e.response.status_code} from OpenSky", "flights": []},
+            status_code=502,
+        )
     except (httpx.HTTPError, ValueError) as e:
         return JSONResponse(
             {"ok": False, "error": f"{type(e).__name__}: {e}", "flights": []}, status_code=502
