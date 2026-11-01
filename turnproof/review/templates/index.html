@@ -11,14 +11,30 @@
     and the packet is hashed and signed.</p>
   </div>
   <div class="howto">
-    <div class="step"><b>1</b> Run a clip<br><code>make demo CLIP=clips/clip1.mp4</code></div>
+    <a class="btn primary big upload-btn" href="/upload">Upload clip →</a>
+    <div class="step"><b>1</b> Upload a clip with the claim and your log (or <code>make demo CLIP=…</code>)</div>
     <div class="step"><b>2</b> Open the card, check the pictures, confirm or reject</div>
     <div class="step"><b>3</b> Send; the airline verifies the signed packet</div>
   </div>
 </section>
 
+{% if processing %}
+<div class="cards">
+  {% for st in processing %}
+  <a class="rcard processing" href="/runs/{{ st.run_id }}">
+    <div class="rcard-body">
+      <div class="rcard-title">{% if st.state == 'failed' %}Run failed{% else %}Processing…{% endif %} <span class="mono small">{{ st.run_id }}</span></div>
+      <div class="muted small">{{ st.clip }} · started {{ st.started_at_utc | short(16) }}</div>
+      <div class="rcard-ms">{% if st.state == 'failed' %}<span class="chip bad">{{ st.error }}</span>{% else %}<span class="chip warn">{{ st.stage }}</span>{% endif %}</div>
+      <div class="rcard-cta">{% if st.state == 'failed' %}See the error →{% else %}Watch progress →{% endif %}</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if not runs %}
-<div class="empty">No runs yet. In a terminal: <code>make demo CLIP=clips/clip1.mp4</code>, then refresh.</div>
+<div class="empty">No runs yet. <a href="/upload">Upload a clip</a>, or in a terminal: <code>make demo CLIP=clips/clip1.mp4</code>.</div>
 {% else %}
 <div class="cards">
   {% for g in groups %}
@@ -112,6 +128,7 @@ The handler sends a packet from the run page (Confirm → Send to airline). <a h
 {% endblock %}
 {% block scripts %}
 <script>
+{% if processing and (processing | selectattr('state', 'in', ['queued', 'running']) | list) %}setTimeout(() => window.location.reload(), 8000);{% endif %}
 document.querySelectorAll('.earlier-open').forEach(el => el.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation(); window.location = el.dataset.href;
 }));

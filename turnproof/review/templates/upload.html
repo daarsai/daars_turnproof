@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Upload clip{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Runs</a> › Upload clip</div>
+<section class="run-head">
+  <div>
+    <h1>Upload a turnaround clip</h1>
+    <div class="muted">One stand-camera clip, the airline's delay claim, your milestone log. The run starts as soon as the upload finishes; a card appears on the front page and the run page shows progress.</div>
+  </div>
+</section>
+
+<form method="post" action="/upload" enctype="multipart/form-data" class="upload">
+  <div class="grid-2">
+    <section class="card">
+      <h2>1 · Footage</h2>
+      <label class="field">Video file (mp4 / mov)
+        <input type="file" name="clip" accept="video/mp4,video/quicktime,.mp4,.mov,.m4v" required>
+      </label>
+      <div class="muted small">Re-uploading a clip that was already run costs nothing: model answers are cached by the file's SHA-256.</div>
+
+      <label class="field">Camera view <span class="muted small">(picks the hold-zone preset)</span>
+        <select name="view">
+          <option value="front_quarter">front_quarter — camera ahead of the wing, nose toward the jet bridge</option>
+          <option value="side">side — true side-on view, nose at the left</option>
+          <option value="nose">nose — camera looks at the nose</option>
+        </select>
+      </label>
+
+      <div class="grid-2 tight">
+        <label class="field">Clip start time (UTC) <span class="muted small">leave blank → unsynced</span>
+          <input type="datetime-local" name="reference_start" step="1">
+        </label>
+        <label class="field">Speed factor <span class="muted small">1.0 = real time; 6 = time-lapse, 1 s video = 6 s real</span>
+          <input type="number" name="speed_factor" value="1.0" step="0.1" min="0.1">
+        </label>
+      </div>
+      <label class="field">How the speed factor is known
+        <select name="speed_source">
+          <option value="declared_by_uploader">declared by the uploader (camera is real-time or its rate is known)</option>
+          <option value="estimated_from_vehicle_motion">estimated from vehicle motion</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="use_spark" checked> Run the Muse Spark keyframe check (recommended; a few cents per clip)</label>
+    </section>
+
+    <section class="card">
+      <h2>2 · Claim and log</h2>
+      <label class="field">Use a saved scenario
+        <select name="scenario">
+          {% for s in scenarios %}<option value="{{ s.name }}">{{ s.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <details class="manual">
+        <summary>…or enter the claim and your log by hand</summary>
+        <div class="grid-2 tight">
+          <label class="field">Flight number <input name="m_flight" placeholder="XY123"></label>
+          <label class="field">Airline <input name="m_airline" placeholder="XY Airways"></label>
+          <label class="field">Station <input name="m_station" placeholder="BLR"></label>
+          <label class="field">Stand <input name="m_stand" placeholder="D14"></label>
+          <label class="field">Flight date <input type="date" name="m_date"></label>
+          <label class="field">Handler <input name="m_handler" placeholder="Handler Co"></label>
+          <label class="field">Camera id <input name="m_camera" placeholder="stand-d14-01"></label>
+        </div>
+        <h3>Airline's delay claim</h3>
+        <div class="grid-2 tight">
+          <label class="field">Delay code
+            <select name="m_code">
+              <option value="31">31 — late documentation / load control</option>
+              <option value="32" selected>32 — loading / unloading</option>
+              <option value="33">33 — loading equipment</option>
+              <option value="34">34 — servicing equipment</option>
+              <option value="35">35 — aircraft cleaning</option>
+              <option value="36">36 — fuelling / defuelling</option>
+              <option value="37">37 — catering</option>
+              <option value="38">38 — ULD / container</option>
+              <option value="39">39 — technical equipment</option>
+            </select>
+          </label>
+          <label class="field">Minutes claimed <input type="number" name="m_minutes" min="0" placeholder="9"></label>
+          <label class="field">Claim window start (UTC) <input type="datetime-local" name="m_win_start" step="1"></label>
+          <label class="field">Claim window end (UTC) <input type="datetime-local" name="m_win_end" step="1"></label>
+        </div>
+        <h3>Your milestone log</h3>
+        <div class="grid-2 tight">
+          <label class="field">Loader docked (UTC) <input type="datetime-local" name="m_log_docked" step="1"></label>
+          <label class="field">Loading complete (UTC) <input type="datetime-local" name="m_log_complete" step="1"></label>
+          <label class="field">Hold door closed (UTC) <input type="datetime-local" name="m_log_door" step="1"></label>
+        </div>
+        <div class="muted small">If a flight number is entered here, these fields are used instead of the saved scenario. Everything is labelled synthetic test data.</div>
+      </details>
+      <div class="btns"><button class="btn primary big" type="submit">Upload and run</button><a class="btn" href="/">Cancel</a></div>
+      <div class="muted small">Integration: the same fields on <code>POST /api/upload</code> (multipart) return <code>{"run_id", "status", "page"}</code>, so a station's video system can push clips without this form.</div>
+    </section>
+  </div>
+</form>
+{% endblock %}

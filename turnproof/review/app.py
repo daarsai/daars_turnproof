@@ -17,15 +17,22 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import UploadFile
 
+from turnproof.evidence.canonical import sha256_hex
 from turnproof.evidence.pdf import render_packet_pdf
 from turnproof.pipeline import ref_time
+from turnproof.reason import asr_client
+from turnproof.review import jobs
 from turnproof.review.state_machine import TransitionError
 from turnproof.review.store import RunStore
+
+load_dotenv()  # MODEL_API_KEY for runs started from the console
 
 HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
@@ -260,6 +267,8 @@ def index(request: Request):
         ctx(
             request,
             runs=cards,
+            processing=processing_runs(),
+            scenarios=scenario_options(),
             groups=clip_groups,
             packets=sent + (unsent if preview else []),
             unsent_count=len(unsent),
@@ -282,6 +291,11 @@ def run_page(request: Request, run_id: str):
     try:
         s = store.summary(run_id)
     except FileNotFoundError as e:
+        st = jobs.read_status(store.runs_dir / run_id) if _safe_id(run_id) else None
+        if st:
+            return templates.TemplateResponse(
+                request, "processing.html", ctx(request, run_id=run_id, st=st)
+            )
         raise HTTPException(404, "run not found") from e
     packet = store.packet(run_id)
     evidence = evidence_list(run_id, s, packet)
@@ -429,6 +443,235 @@ def metrics(run_id: str):
     if m is None:
         raise HTTPException(404)
     return m
+
+
+# ---- uploads: the input to TurnProof ---------------------------------------------------------
+def _safe_id(v: str) -> bool:
+    return bool(v) and "/" not in v and ".." not in v and not v.startswith(".")
+
+
+def processing_runs() -> list[dict]:
+    out = []
+    if not store.runs_dir.exists():
+        return out
+    for d in sorted(store.runs_dir.iterdir(), reverse=True):
+        if (d / "run_summary.json").exists():
+            continue
+        st = jobs.read_status(d)
+        if st:
+            out.append(st)
+    return sorted(out, key=lambda st: st.get("started_at_utc", ""), reverse=True)
+
+
+def scenario_options() -> list[dict]:
+    opts = []
+    for meta_path in sorted(Path("scenarios").glob("*/clip_meta.json")):
+        meta = json.loads(meta_path.read_text())
+        claim_path = meta_path.parent / "airline_claim.json"
+        claim = json.loads(claim_path.read_text()) if claim_path.exists() else {}
+        opts.append(
+            {
+                "name": meta_path.parent.name,
+                "label": f"{meta_path.parent.name} · {meta.get('flight_number')} {meta.get('airline')} · "
+                f"{meta.get('station')} stand {meta.get('stand')} · claim code {claim.get('delay_code')}, "
+                f"{claim.get('minutes')} min",
+            }
+        )
+    return opts
+
+
+def _utc(v: str | None) -> str | None:
+    """datetime-local value (entered as UTC) -> ISO Z string; None when blank."""
+    v = (v or "").strip()
+    if not v:
+        return None
+    if len(v) == 16:
+        v += ":00"
+    return v + "Z"
+
+
+async def _start_upload(
+    clip: UploadFile,
+    scenario: str,
+    reference_start: str | None,
+    speed_factor: float,
+    speed_source: str,
+    view: str,
+    use_spark: bool,
+    manual: dict | None,
+) -> str:
+    name = Path(clip.filename or "upload.mp4").name
+    stem = (
+        "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in Path(name).stem)[:32] or "clip"
+    )
+    suffix = Path(name).suffix.lower() or ".mp4"
+    if suffix not in (".mp4", ".mov", ".m4v", ".mkv", ".avi"):
+        raise HTTPException(400, "clip must be a video file (mp4, mov, m4v, mkv, avi)")
+    uploads = DATA_DIR / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    run_id = f"{stem}-{os.urandom(4).hex()}"
+    dest = uploads / f"{run_id}{suffix}"
+    with dest.open("wb") as fh:
+        while chunk := await clip.read(1 << 20):
+            fh.write(chunk)
+    if manual:
+        scen_dir = jobs.write_scenario(
+            DATA_DIR / "scenarios" / run_id, manual["meta"], manual["claim"], manual["log"]
+        )
+    else:
+        scen_dir = Path("scenarios") / scenario
+        if not _safe_id(scenario) or not (scen_dir / "clip_meta.json").exists():
+            raise HTTPException(400, "unknown scenario")
+    if view not in jobs.VIEWS:
+        raise HTTPException(400, "unknown camera view")
+    clip_cfg = {
+        "reference_start_utc": _utc(reference_start),
+        "speed_factor": float(speed_factor) if speed_factor else None,
+        "speed_factor_source": speed_source,
+        "view": view,
+    }
+    return jobs.start_run(
+        dest, clip_cfg=clip_cfg, scenario_dir=scen_dir, data_dir=DATA_DIR,
+        use_spark=use_spark, run_id=run_id,
+    )  # fmt: skip
+
+
+def _manual_from_form(f) -> dict | None:
+    """Claim and log typed into the form; None when the flight number is blank."""
+    flight = (f.get("m_flight") or "").strip()
+    if not flight:
+        return None
+    meta = {
+        "station": (f.get("m_station") or "").strip() or "XXX",
+        "stand": (f.get("m_stand") or "").strip() or "?",
+        "flight_number": flight,
+        "flight_date": (f.get("m_date") or "").strip() or "2026-01-01",
+        "airline": (f.get("m_airline") or "").strip() or "Airline",
+        "handler": (f.get("m_handler") or "").strip() or "Handler",
+        "camera_id": (f.get("m_camera") or "").strip() or "stand-cam",
+        "data_label": "synthetic test data",
+    }
+    start, end = _utc(f.get("m_win_start")), _utc(f.get("m_win_end"))
+    claim = {
+        "delay_code": (f.get("m_code") or "32").strip(),
+        "minutes": int(f.get("m_minutes") or 0),
+        "source": "synthetic test data (console entry)",
+    }
+    if start and end:
+        claim["claim_window_utc"] = {"start": start, "end": end}
+    log = [
+        {"milestone": m, "t_utc": _utc(f.get(k))}
+        for m, k in (
+            ("loader_docked_start", "m_log_docked"),
+            ("loading_complete", "m_log_complete"),
+            ("hold_door_closed", "m_log_door"),
+        )
+        if _utc(f.get(k))
+    ]
+    return {"meta": meta, "claim": claim, "log": log}
+
+
+@app.get("/upload", response_class=HTMLResponse)
+def upload_form(request: Request):
+    return templates.TemplateResponse(
+        request, "upload.html", ctx(request, scenarios=scenario_options(), views=jobs.VIEWS)
+    )
+
+
+@app.post("/upload")
+async def upload(request: Request):
+    form = await request.form()
+    clip = form.get("clip")
+    if not isinstance(clip, UploadFile) or not clip.filename:
+        return _redirect("/upload", err="choose a video file first")
+    try:
+        run_id = await _start_upload(
+            clip,
+            str(form.get("scenario") or ""),
+            str(form.get("reference_start") or ""),
+            float(form.get("speed_factor") or 1.0),
+            str(form.get("speed_source") or "declared_by_uploader"),
+            str(form.get("view") or "front_quarter"),
+            form.get("use_spark") is not None,
+            _manual_from_form(form),
+        )
+    except HTTPException as e:
+        return _redirect("/upload", err=str(e.detail))
+    return _redirect(f"/runs/{run_id}", msg="upload received; the run has started")
+
+
+@app.post("/api/upload")
+async def api_upload(request: Request):
+    """Machine entry point (a station's video system can push clips): multipart, same fields
+    as the form. Returns the run id and where to poll."""
+    form = await request.form()
+    clip = form.get("clip")
+    if not isinstance(clip, UploadFile) or not clip.filename:
+        raise HTTPException(400, "multipart field 'clip' (video file) is required")
+    run_id = await _start_upload(
+        clip,
+        str(form.get("scenario") or "clip1"),
+        str(form.get("reference_start") or ""),
+        float(form.get("speed_factor") or 1.0),
+        str(form.get("speed_source") or "declared_by_uploader"),
+        str(form.get("view") or "front_quarter"),
+        str(form.get("use_spark") or "1") not in ("0", "false", "no"),
+        None,
+    )
+    return {"run_id": run_id, "status": f"/api/runs/{run_id}/status", "page": f"/runs/{run_id}"}
+
+
+@app.get("/api/runs/{run_id}/status")
+def api_status(run_id: str):
+    if not _safe_id(run_id):
+        raise HTTPException(404)
+    st = jobs.read_status(store.runs_dir / run_id)
+    if not st:
+        raise HTTPException(404)
+    return st
+
+
+# ---- operator statement: typed, or spoken and transcribed by Muse Voice Transcribe ---------
+@app.post("/runs/{run_id}/statement")
+async def statement(request: Request, run_id: str):
+    form = await request.form()
+    audio = form.get("audio")
+    text = str(form.get("text") or "").strip()
+    try:
+        store.run_dir(run_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404) from e
+    if isinstance(audio, UploadFile) and audio.filename:
+        raw = await audio.read()
+        try:
+            suffix = Path(audio.filename).suffix or ".webm"
+            wav = raw if suffix == ".wav" else asr_client.to_wav(raw, suffix)
+            res = asr_client.transcribe(wav)
+        except Exception as e:  # noqa: BLE001 - show the operator what failed
+            return _redirect(f"/runs/{run_id}", err=f"transcription failed: {e}")
+        if not res["text"]:
+            return _redirect(f"/runs/{run_id}", err="transcription returned no text; try again")
+        stmt = {
+            "text": res["text"],
+            "source": "spoken",
+            "model": res["model"],
+            "audio_sha256": sha256_hex(wav),
+            "recorded_at_utc": jobs._now(),
+            "operator": "handler_operator",
+        }
+    elif text:
+        stmt = {
+            "text": text,
+            "source": "typed",
+            "model": None,
+            "audio_sha256": None,
+            "recorded_at_utc": jobs._now(),
+            "operator": "handler_operator",
+        }
+    else:
+        return _redirect(f"/runs/{run_id}", err="record a statement or type one")
+    store.set_statement(run_id, stmt)
+    return _redirect(f"/runs/{run_id}", msg="statement recorded in the event log")
 
 
 # ---- files -----------------------------------------------------------------------------------

@@ -182,10 +182,16 @@ def test_console_end_to_end(run_dir):
     c.post(f"/runs/{RUN}/action", data={"action": "send"})
     assert app_mod.store.review(RUN)["state"] == "SENT"
 
-    # the decisions are in the hash-chained log, after the packet_built row
+    # the decisions are in the hash-chained log, after the packet_built row; sending re-issues
+    # the packet with the decision inside and the draft's hash in the chain
     ev = app_mod.store.events(RUN)
-    assert [e["action"] for e in ev[-2:]] == ["confirm", "send"]
+    assert [e["action"] for e in ev[-3:]] == ["confirm", "send", "packet_reissued"]
     assert ev[-1]["prev_hash"] == ev[-2]["hash"]
+    sent = app_mod.store.packet(RUN)
+    draft = json.loads((run_dir / "packets" / f"{PID}.draft.json").read_text())
+    assert sent["review"]["decision"] == "confirmed" and sent["review"]["note"] == "checked frames"
+    assert sent["chain"]["prev_packet_sha256"] == draft["packet_sha256"]
+    assert sent["packet_sha256"] != draft["packet_sha256"]
 
     # airline side
     c.get("/role/airline")
@@ -197,6 +203,9 @@ def test_console_end_to_end(run_dir):
     assert "err=" in r.headers["location"]
     c.post(f"/packets/{PID}/action", data={"action": "acknowledge"})
     assert app_mod.store.review(RUN)["state"] == "ACKNOWLEDGED"
+    acked = app_mod.store.packet(RUN)
+    assert acked["counterparty"]["state"] == "ACKNOWLEDGED"
+    assert acked["chain"]["prev_packet_sha256"] == sent["packet_sha256"]  # version chain
 
     # verifier from the UI still passes after the extra log rows (chain head is mid-chain)
     v = c.post(f"/api/packets/{PID}/verify").json()
@@ -220,3 +229,17 @@ def test_actions_follow_roles(run_dir):
     s.transition(RUN, "handler", "reject", "second vehicle, not the loader")
     assert s.review(RUN)["state"] == "REJECTED"
     assert s.available_actions(RUN, "handler") == []
+
+
+def test_statement_goes_into_the_reissued_packet(run_dir):
+    s = app_mod.store
+    s.set_statement(RUN, {"text": "Loader left at 18:01; second vehicle was the catering truck.",
+                          "source": "typed", "model": None, "audio_sha256": None,
+                          "recorded_at_utc": "2026-11-01T10:00:00Z", "operator": "handler_operator"})  # fmt: skip
+    s.transition(RUN, "handler", "confirm", "ok")
+    s.transition(RUN, "handler", "send")
+    p = s.packet(RUN)
+    assert p["human_statement"]["text"].startswith("Loader left")
+    assert [e["action"] for e in s.events(RUN)][-4:] == [
+        "statement_recorded", "confirm", "send", "packet_reissued"
+    ]  # fmt: skip

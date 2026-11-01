@@ -1,29 +1,136 @@
 # TurnProof
 
-Video-backed, delay-code-linked turnaround evidence packets for airport ground handlers.
-Upload one stand-camera clip plus the airline's delay claim and your own milestone log;
-get a signed, hash-verified packet the airline can verify without us.
+**Video-backed, delay-code-linked turnaround evidence for airport ground handlers.**
 
-Built during the Meta Global AI Developer Hackathon 2026 (Startup track) on the Meta Model API:
-SAM 3.1 for text-prompted detection, aircraft-relative zones and tracking; Muse Spark 1.3 for
-structured keyframe facts that can flag a candidate but never decide it.
+Upload one stand-camera clip, the airline's delay claim and your own milestone log. TurnProof finds
+the one event that most delay disputes turn on — *loading equipment docked at the hold → loading
+complete* — puts it against the claim and the log, lets a human confirm or reject it, and produces a
+signed, hash-verified evidence packet the airline can check with a standalone script. No account, no
+API key, no trust in us required.
 
-> All flight, claim and log data in this repository and the demo are **synthetic test data** on
-> licensed footage (see `ATTRIBUTIONS.md`). Accuracy figures are indicative, from N clips only.
+Built for the **Meta Global AI Developer Hackathon 2026** (Startup track) on the Meta Model API:
+**SAM 3.1** for text-prompted detection of the aircraft and any loading equipment, **Muse Spark 1.3**
+for structured keyframe facts that can *flag* a candidate but never *decide* it.
+
+> All flight, claim and log data in this repository and the demo are **synthetic test data on
+> licensed footage**. Persons are blurred before anything is displayed. Three clips were used; every
+> number here is indicative, not a benchmark.
+
+---
+
+## What you see
+
+| Ground handler | Airline reviewer |
+| --- | --- |
+| One card per clip. Open it: two big frames — *equipment at the hold* → *hold clear* — with SAM 3.1 boxes, the occupancy timeline under the video, milestone times against the handler log and the claim, Muse Spark's keyframe facts, and **Confirm / Reject / Correct → Send**. | Only packets the handler has **sent**. Claim vs what the video supports, key frames with hashes, **Verify packet now** (runs the verifier live), **Tamper test**, Download JSON / PDF, **Acknowledge / Dispute**. |
+
+Every decision is appended to a hash-chained event log. Models detect and flag; humans decide.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Upload clip<br/>+ claim + handler log] --> B[Frames<br/>SHA-256 original<br/>AES-256-GCM at rest]
+    B --> C[SAM 3.1<br/>aircraft · vehicle · person]
+    C --> D[Persons blurred<br/>redacted frames hashed]
+    C --> E[Aircraft-relative<br/>hold zones]
+    E --> F[Occupancy rule<br/>docked ≥ 1 min → away ≥ 1 min]
+    F --> G[Milestones<br/>loader_docked_start<br/>loading_complete]
+    G --> H[Muse Spark 1.3<br/>keyframe facts · agree / disagree]
+    G --> I[Discrepancy table<br/>video vs log vs claim]
+    H --> J[Human review<br/>confirm · reject · correct]
+    I --> J
+    J --> K[Signed packet<br/>Ed25519 · hash-chained log]
+    K --> L[Airline<br/>verify_packet.py]
+```
+
+1. **Ingest.** Every frame is hashed before anything touches it, then encrypted at rest. A redacted copy (persons blurred from SAM's `person` boxes) is what the console shows and what the packet hashes.
+2. **Detect.** SAM 3.1 is prompted with three nouns on the whole video: `aircraft`, `vehicle`, `person`. No equipment-specific model, no tracking: belt loader, container loader, dolly train — anything SAM calls a vehicle counts.
+3. **Zones.** Hold zones are fractions of SAM's aircraft box, chosen per camera view (`config/config.yaml`), so they move with the aircraft and never need pixel calibration.
+4. **Rule.** The share of any vehicle box inside the hold zone is sampled twice a second, smoothed, and run through a hysteresis rule with thresholds in *real* seconds (scaled by the clip's declared speed factor): docked ≥ 1 min, then away ≥ 1 min → `loading_complete`. Short gaps are merged. Equipment already present at the clip start is flagged as an upper bound; a departure cut short by the clip end is flagged too.
+5. **Check.** Muse Spark 1.3 gets the keyframes (mid-docked, departure, +3 s, and a zoomed hold crop) and returns strict JSON: observed facts, hold-door state, and whether it agrees that the equipment departed. If it disagrees, the packet names no minutes and no code; the operator decides. Spark's suggested delay-code family is stored as a note and never read by the claim logic.
+6. **Compare.** Milestones against the handler log and the airline claim window: *claimed minutes* vs *minutes of the window during which loading was still in progress*. The proposed delay-code family comes from the rule alone.
+7. **Sign.** Packet = canonical JSON → SHA-256 → Ed25519. It carries the head of the event-log chain at build time; later human decisions extend the chain, and the verifier accepts the anchor anywhere in an intact chain.
+
+## Meta models
+
+| Model | Used for | How | Never does |
+| --- | --- | --- | --- |
+| `sam-3.1` | aircraft box, loading-equipment boxes, person boxes for redaction | Responses API, `input_video` + one noun phrase, boxes parsed from the special-token output, masks ignored | track identity, name equipment types |
+| `muse-spark-1.3` | keyframe facts, hold-door state, agree/disagree with the rule | chat completions, image data URLs, strict `json_schema` output, reasoning effort medium | set a milestone time, decide a claim, choose the delay code |
+| `muse-voice-transcribe-1.0` | optional spoken operator statement (smoke-tested, not in the packet yet) | `/v1/asr/transcribe` multipart | — |
+
+API responses are cached per clip under `data/cache/` (key = concept + file SHA-256 + request metadata), so re-running a clip costs nothing. First run of a 40 s, 30 fps clip ≈ $0.75 (SAM, 3 video calls) + $0.02 (Spark). Each run writes its own cost estimate to `run_metrics.json` and the console shows it.
 
 ## Quickstart
 
 ```bash
-make setup                          # venv, deps, demo keys, .env from template
-# put MODEL_API_KEY in .env
-make frames CLIP=clips/clip1.mp4    # 1 fps PNGs + 10 s excerpt
-make smoke-sam IMG=data/frames/clip1/f0000.png PROMPT="belt loader"
-make smoke-spark IMG="data/frames/clip1/f0010.png data/frames/clip1/f0020.png"
-make test
+git clone https://github.com/daarsai/daars_turnproof.git && cd daars_turnproof
+make setup                        # venv, deps, demo signing keys, .env from template
+#   put MODEL_API_KEY=... (Meta Model API, Standard mode) into .env
+cp your_clip.mp4 clips/clip1.mp4  # a stand-camera clip; scenarios/clip1/ holds the synthetic claim + log
+make demo CLIP=clips/clip1.mp4    # run the pipeline (prints the run id and the verify command)
+make serve                        # console -> http://localhost:8080
 ```
 
-Pipeline, console, verifier and video script: see `docs/SPEC.md`.
+Other targets:
 
-## Status
+```bash
+make test                         # 41 offline tests (no API key needed)
+make lint
+make verify PACKET=data/runs/<run>/packets/<id>.json   # all 7 checks
+make tamper PACKET=...            # copy the frames, flip one pixel, expect FAIL
+make replay RUN=<run_id>          # re-run a clip from the cache, no API spend
+make archive RUN=<run_id>         # hide an old run from the console (moved to data/archive/)
+docker compose up --build         # same console in a container (mount data/, clips/, keys/)
+```
 
-Day 0 (31 Oct 2026): skeleton, integrity core (canonical JSON, hash chain, Ed25519), smoke scripts.
+Per-clip settings live in `config/config.yaml`: declared clip start time, speed factor (time-lapse footage), and the camera view that picks the hold-zone preset. A clip without a declared start time runs as **unsynced**: milestones get frame numbers, never clock times, and the packet says so.
+
+## Verify a packet yourself
+
+```bash
+python verify_packet.py TP-20261101-xxxxxxxx.json \
+    --frames display/ --log eventlog.jsonl --pub turnproof-demo-2026.pub
+```
+
+Checks: schema version · required fields · no machine speculation field · SHA-256 of every redacted evidence frame · event-log hash chain and the packet's anchor in it · packet hash over canonical JSON · Ed25519 signature. Exit code 0 only if all pass. Standard library plus the `cryptography` package; no TurnProof code needed.
+
+## What is in a packet
+
+`packet_id`, flight / stand / parties, the clip's SHA-256, time-sync declaration (start, speed factor and its source), the airline claim, the handler log, milestones with method and confidence, Muse Spark's observed facts (as facts, with frame ids), the discrepancy table, the proposed claim (`delay_code_family`, `minutes_supported_by_video`, `basis`), evidence frames with original and redacted hashes, the models and prompt hashes used, the review and counterparty state, the event-log head, the packet hash and the signature. Schema 0.1 is enforced with pydantic before anything is written.
+
+## Review states
+
+`OBSERVED → CANDIDATE → UNDER_REVIEW → CONFIRMED | REJECTED → SENT → ACKNOWLEDGED | DISPUTED → RESOLVED → ARCHIVED`
+
+Only `system`, `handler_operator` and `airline_reviewer` move states. Reject, correct, dispute and resolve require a note; so does confirm when Spark flagged the candidate for review or its confidence is below 0.70.
+
+## Limits, plainly
+
+- Three clips, all time-lapse, speed factors **estimated** from vehicle motion (±50 %). Real stand cameras are real-time; the thresholds are already expressed in real seconds.
+- Equipment already at the hold when a clip starts gives an **upper bound** for `loader_docked_start`, not a time. A clip that ends while the equipment is away flags `departure cut short by clip end`.
+- Hold-door state is `unknown` on this footage; the camera angle never shows the door clearly. The milestone exists in the schema and is only written when Spark sees a closed door.
+- The hold zone is a configured fraction of the aircraft box per camera view, not learned. A new camera angle needs a preset (five numbers).
+- No tracking: a second vehicle passing through the zone extends the docked period. Smoothing and gap-merging handle short events; Spark's keyframe check catches the rest, and the operator decides.
+- Accuracy is not claimed. The console shows every number the rule used; the packet records every model and prompt by hash.
+
+## Repository
+
+```
+turnproof/            pipeline.py (run), ingest/ (frames, redact, crypto), perception/ (SAM client + parser),
+                      zones/, events/ (occupancy rule, milestones, event log), reason/ (Spark client, prompts,
+                      schemas), evidence/ (canonical JSON, signing, discrepancy, packet, PDF), review/ (console)
+verify_packet.py      standalone verifier
+scripts/              smoke tests, key generation, tamper demo, speed-factor estimator
+scenarios/<clip>/     synthetic clip_meta.json, airline_claim.json, handler_log.csv
+config/config.yaml    models, zone presets, rule thresholds, per-clip declarations
+tests/                41 offline tests (hash chain, signing, state machine, zones, rule, parser, packet
+                      round-trip with tamper, console)
+```
+
+Never committed: `.env`, `keys/*.pem`, `clips/*`, `data/`. Originals are encrypted at rest; the console serves redacted frames only.
+
+## Team and licence
+
+DAARS Instruments Pvt. Ltd., Bengaluru — a founder-led build. Apache-2.0.

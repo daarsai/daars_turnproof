@@ -88,3 +88,35 @@ def sign_and_write(p: dict, out_path: Path, key_id: str) -> dict:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(p, indent=1, sort_keys=True))
     return p
+
+
+def reissue(
+    draft: dict,
+    out_path: Path,
+    key_id: str,
+    *,
+    review: dict,
+    counterparty: dict | None = None,
+    human_statement: dict | None = None,
+    chain_head: str,
+) -> dict:
+    """A new signed version of a packet: the handler's decision, note and optional spoken
+    statement are filled in, and the previous version's hash is recorded in chain.prev_packet_sha256.
+    The draft file is kept next to it as <id>.draft.json (or <id>.v<n>.json for later versions)."""
+    import copy
+
+    p = copy.deepcopy(draft)
+    p["review"] = {**p["review"], **review}
+    if counterparty:
+        p["counterparty"] = {**p["counterparty"], **counterparty}
+    p["human_statement"] = human_statement
+    p["chain"] = {"event_log_head_sha256": chain_head, "prev_packet_sha256": draft["packet_sha256"]}
+    p["created_at_utc"] = now()
+    if out_path.exists():
+        n = 1
+        prev = out_path.with_suffix(".draft.json")
+        while prev.exists():
+            n += 1
+            prev = out_path.with_name(f"{out_path.stem}.v{n}.json")
+        out_path.rename(prev)
+    return sign_and_write(p, out_path, key_id)

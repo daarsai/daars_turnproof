@@ -74,6 +74,16 @@
     <pre id="verify-out" class="term" hidden></pre>
     <div class="muted small">Same check from any machine: <code>python verify_packet.py {{ packet.packet_id }}.json --frames display/ --log eventlog.jsonl --pub turnproof-demo-2026.pub</code> — standard library + one crypto package, no API key, no account.</div>
 
+    <h3>Handler's decision</h3>
+    {% if packet.review.decision != 'pending' %}
+    <div class="small"><span class="chip good">{{ packet.review.decision }}</span> by {{ packet.review.operator }} at <span class="mono">{{ packet.review.t_utc | fmt_t if packet.review.t_utc else '' }}</span>{% if packet.review.note %} — <i>{{ packet.review.note }}</i>{% endif %}</div>
+    {% else %}<div class="muted small">not yet reviewed (draft packet)</div>{% endif %}
+    {% if packet.human_statement %}
+    <div class="statement"><div class="small">Operator statement {% if packet.human_statement.source == 'spoken' %}<span class="chip good tiny">spoken · {{ packet.human_statement.model }}</span> <span class="muted tiny mono">audio sha256 {{ packet.human_statement.audio_sha256 | short(12) }}…</span>{% else %}<span class="chip tiny">typed</span>{% endif %}</div>
+    <p class="reason">“{{ packet.human_statement.text }}”</p></div>
+    {% endif %}
+    {% if packet.chain.prev_packet_sha256 %}<div class="muted small">This is a re-issued version: previous version sha256 <span class="mono">{{ packet.chain.prev_packet_sha256 | short(16) }}…</span> (kept alongside; each version is signed).</div>{% endif %}
+
     <h3>{{ 'Your decision' if role == 'airline' else 'Airline decision' }}</h3>
     {% if actions %}
     <form method="post" action="/packets/{{ packet.packet_id }}/action" class="decide">

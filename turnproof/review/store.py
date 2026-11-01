@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from turnproof.events.eventlog import EventLog
+from turnproof.evidence import packet as packet_mod
 from turnproof.review.state_machine import TRANSITIONS, Candidate, TransitionError
 
 ROLE_ACTOR = {"handler": "handler_operator", "airline": "airline_reviewer"}
@@ -97,7 +98,7 @@ class RunStore:
             requires_operator_review=bool(spark.get("requires_operator_review", True)),
             spark_confidence=float(spark.get("confidence") or 0.0),
         )
-        return {**asdict(c), "updated_at_utc": None}
+        return {**asdict(c), "statement": None, "updated_at_utc": None}
 
     def available_actions(self, run_id: str, role: str) -> list[str]:
         st = self.review(run_id)["state"]
@@ -127,7 +128,60 @@ class RunStore:
         d = self.run_dir(run_id)
         log = EventLog(d / "events.db", run_id)
         log.append(actor, action, {"note": note}, prev, c.state)
+        out = {**asdict(c), "statement": rev.get("statement"), "updated_at_utc": _now()}
+        if action in ("send", "acknowledge", "dispute"):
+            self._reissue_packet(run_id, out, action, note, log)
         log.export_jsonl(d / "eventlog.jsonl")
-        out = {**asdict(c), "updated_at_utc": _now()}
         (d / "review.json").write_text(json.dumps(out, indent=1))
         return out
+
+    def _reissue_packet(
+        self, run_id: str, rev: dict, action: str, note: str, log: EventLog
+    ) -> None:
+        """On send: a new signed packet version carrying the decision, note and statement.
+        On acknowledge / dispute: another version carrying the airline's answer."""
+        path = self.packet_path(run_id)
+        if not path:
+            return
+        draft = json.loads(path.read_text())
+        confirm = next((h for h in rev["history"] if h["action"] == "confirm"), None)
+        review = {
+            "decision": "confirmed" if confirm else "pending",
+            "operator": "handler_operator",
+            "t_utc": (confirm or {}).get("t_utc"),
+            "note": (confirm or {}).get("note", ""),
+        }
+        counterparty = None
+        if action in ("acknowledge", "dispute"):
+            counterparty = {
+                "state": "ACKNOWLEDGED" if action == "acknowledge" else "DISPUTED",
+                "actor": "airline_reviewer",
+                "t_utc": _now(),
+                "reason": note or None,
+            }
+        key_id = draft["signature"]["key_id"]
+        new = packet_mod.reissue(
+            draft,
+            path,
+            key_id,
+            review=review,
+            counterparty=counterparty,
+            human_statement=rev.get("statement"),
+            chain_head=log.head(),
+        )
+        log.append(
+            "system",
+            "packet_reissued",
+            {"packet_sha256": new["packet_sha256"], "prev": draft["packet_sha256"], "on": action},
+        )
+
+    # ---- operator statement (typed, or spoken -> Muse Voice Transcribe) ----------------
+    def set_statement(self, run_id: str, statement: dict) -> dict:
+        d = self.run_dir(run_id)
+        rev = self.review(run_id)
+        rev["statement"] = statement
+        log = EventLog(d / "events.db", run_id)
+        log.append("handler_operator", "statement_recorded", statement)
+        log.export_jsonl(d / "eventlog.jsonl")
+        (d / "review.json").write_text(json.dumps(rev, indent=1))
+        return rev

@@ -69,6 +69,29 @@ def render_packet_pdf(packet: dict, run_dir: Path, out_path: Path) -> Path:
     pdf.multi_cell(0, 6, f"Basis: {p['basis']}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1)
 
+    rv = packet.get("review") or {}
+    hs = packet.get("human_statement")
+    if rv.get("decision", "pending") != "pending" or hs:
+        heading("Handler review")
+        if rv.get("decision", "pending") != "pending":
+            pdf.multi_cell(0, 6, f"Decision: {rv['decision']} by {rv.get('operator')} at {rv.get('t_utc')}"
+                           + (f" - note: {rv['note']}" if rv.get("note") else ""),
+                           new_x="LMARGIN", new_y="NEXT")  # fmt: skip
+        if hs:
+            src = (
+                f"spoken, transcribed by {hs.get('model')}"
+                if hs.get("source") == "spoken"
+                else "typed"
+            )
+            pdf.multi_cell(0, 6, f"Operator statement ({src}): \"{hs.get('text', '')}\"",
+                           new_x="LMARGIN", new_y="NEXT")  # fmt: skip
+        cp = packet.get("counterparty") or {}
+        if cp.get("state", "PENDING") != "PENDING":
+            pdf.multi_cell(0, 6, f"Airline: {cp['state']} by {cp.get('actor')} at {cp.get('t_utc')}"
+                           + (f" - {cp['reason']}" if cp.get("reason") else ""),
+                           new_x="LMARGIN", new_y="NEXT")  # fmt: skip
+        pdf.ln(1)
+
     heading("Milestones (from video)")
     for m in packet["milestones"]:
         how = "rule" if m["method"].startswith("sam31") else "spark"

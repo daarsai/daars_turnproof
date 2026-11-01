@@ -157,3 +157,18 @@ video { width: 100%; background: #000; border-radius: 4px; display: block; }
 .earlier { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
 .earlier-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; font-size: 13px; }
 .earlier-open { color: var(--navy-2); text-decoration: underline; cursor: pointer; margin-left: auto; }
+.upload-btn { display: block; text-align: center; font-size: 16px; padding: 12px; }
+.field { display: block; margin: 10px 0; font-size: 13.5px; font-weight: 600; color: var(--navy); }
+.field input, .field select { display: block; width: 100%; margin-top: 4px; font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.field .small { font-weight: 400; }
+.check { display: block; margin: 12px 0; font-size: 14px; }
+.manual { margin: 10px 0; border: 1px dashed var(--line); border-radius: 4px; padding: 8px 12px; }
+.manual summary { cursor: pointer; font-weight: 600; color: var(--navy-2); }
+.btn.big { font-size: 16px; padding: 11px 20px; }
+.stages { list-style: none; padding: 0; margin: 0; }
+.stages li { padding: 10px 14px; border-left: 4px solid var(--line); margin-bottom: 6px; color: var(--muted); background: #fff; }
+.stages li.done { border-left-color: var(--good); color: var(--ink); }
+.stages li.now { border-left-color: var(--orange); color: var(--ink); font-weight: 600; background: #FFF9F5; }
+.stages .n { display: inline-block; width: 22px; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.rcard.processing { border-style: dashed; }
+.statement { margin: 6px 0 10px; }

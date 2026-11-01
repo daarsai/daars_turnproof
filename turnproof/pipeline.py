@@ -11,6 +11,7 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -91,19 +92,27 @@ def run(
     cfg: dict,
     run_id: str | None = None,
     use_spark: bool = True,
+    *,
+    clip_cfg: dict | None = None,
+    scenario_dir: Path | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> dict:
+    """clip_cfg overrides config.clips.<stem> (console uploads); scenario_dir overrides
+    scenarios/<stem>; progress(stage) is called as each stage starts."""
     t_start = time.time()
     run_id = run_id or f"{clip.stem}-{uuid.uuid4().hex[:8]}"
     out = DATA / "runs" / run_id
     out.mkdir(parents=True, exist_ok=True)
-    clip_cfg = cfg.get("clips", {}).get(clip.stem, {}) or {}
+    tick = progress or (lambda _stage: None)
+    if clip_cfg is None:
+        clip_cfg = cfg.get("clips", {}).get(clip.stem, {}) or {}
     cfg = effective_cfg(cfg, clip_cfg)
     ref_start = clip_cfg.get("reference_start_utc")
     speed = clip_cfg.get("speed_factor")
     speed_src = clip_cfg.get("speed_factor_source")
     synced = bool(ref_start) and speed is not None
     nose_right = False  # zone presets are written per camera view; no mirroring needed
-    scen = SCENARIOS / clip.stem
+    scen = scenario_dir or SCENARIOS / clip.stem
     clip_meta = json.loads((scen / "clip_meta.json").read_text())
     claim = discrepancy.load_claim(scen / "airline_claim.json")
     handler_log = discrepancy.load_handler_log(scen / "handler_log.csv")
@@ -111,6 +120,7 @@ def run(
     timings: dict[str, float] = {}
 
     # 1. ingest ---------------------------------------------------------------
+    tick("ingest: extracting, hashing and encrypting frames")
     t = time.time()
     info = probe(clip)
     h264 = ensure_h264(clip, out / "input_h264.mp4")
@@ -126,6 +136,7 @@ def run(
     log.append("system", "ingested", {"clip_sha256": info.sha256, "frames": len(records)})
 
     # 2. perception (cached per clip) ----------------------------------------
+    tick("sam: SAM 3.1 aircraft / vehicle / person")
     t = time.time()
     sam = SamClient(DATA / "cache" / "sam")
     aircraft = parse(sam.segment_video(h264, "aircraft"))
@@ -135,11 +146,13 @@ def run(
     log.append("system", "sam_segmented", {"calls": sam.calls})
 
     # 3. redaction ------------------------------------------------------------
+    tick("redact: blurring persons")
     t = time.time()
     records = redact_display_frames(out, persons, records)
     timings["redact_s"] = round(time.time() - t, 2)
 
     # 4. zones + milestones ---------------------------------------------------
+    tick("rule: hold-zone occupancy and milestones")
     t = time.time()
     zone_name, hits, cycles = best_zone(
         vehicles, aircraft, cfg, fps, nose_right, clip_cfg.get("zones_enabled"), speed
@@ -176,6 +189,7 @@ def run(
         )
 
     # 5. Spark keyframe check (full frames + zoomed hold crop) ----------------
+    tick("spark: Muse Spark keyframe check")
     spark_result: dict = {"ok": False, "out": None, "path": "skipped"}
     observed_facts: list[dict] = []
     spark = SparkClient(
@@ -249,6 +263,7 @@ def run(
                 )
 
     # 6. discrepancy + packet -------------------------------------------------
+    tick("packet: discrepancy table, overlays, signing")
     rows = discrepancy.build(milestones, handler_log, claim)
     so = spark_result.get("out") or {}
     agrees = (so.get("rule_claim_check") or {}).get("agree") if so else None

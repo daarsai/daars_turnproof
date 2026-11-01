@@ -124,6 +124,24 @@ so there is no <em>loading complete</em> moment to put against the airline's del
       {% else %}No action available for your role in state {{ review.state }}.{% endif %}
     </div>
     {% endif %}
+    {% if role == 'handler' and review.state in ('UNDER_REVIEW', 'CONFIRMED') %}
+    <h3>Operator statement <span class="muted small">optional · spoken statements are transcribed by Muse Voice Transcribe and signed into the packet on Send</span></h3>
+    {% if review.statement %}
+    <div class="statement">
+      <div class="small">{% if review.statement.source == 'spoken' %}<span class="chip good tiny">spoken · {{ review.statement.model }}</span>{% else %}<span class="chip tiny">typed</span>{% endif %} <span class="muted mono tiny">{{ review.statement.recorded_at_utc }}</span></div>
+      <p class="reason">“{{ review.statement.text }}”</p>
+    </div>
+    {% endif %}
+    <form method="post" action="/runs/{{ run_id }}/statement" enctype="multipart/form-data" class="decide" id="stmt-form">
+      <div class="btns">
+        <button type="button" class="btn" id="rec-btn">● Record statement</button>
+        <span id="rec-status" class="muted small"></span>
+      </div>
+      <input type="file" name="audio" id="rec-file" hidden>
+      <textarea name="text" rows="2" placeholder="…or type the statement here"></textarea>
+      <div class="btns"><button class="btn" type="submit">Save statement</button></div>
+    </form>
+    {% endif %}
     {% if review.history %}
     <ul class="history">{% for h in review.history %}<li><span class="mono small">{{ h.t_utc | fmt_t if h.t_utc else '' }}</span> <b>{{ h.actor }}</b> {{ h.action }} → {{ h.to }}{% if h.note %} — <i>{{ h.note }}</i>{% endif %}</li>{% endfor %}</ul>
     {% endif %}
@@ -270,6 +288,31 @@ so there is no <em>loading complete</em> moment to put against the airline's del
   document.getElementById('btn-verify').addEventListener('click', () => call('/api/packets/{{ packet.packet_id }}/verify', 'verifying'));
   document.getElementById('btn-tamper').addEventListener('click', () => call('/api/packets/{{ packet.packet_id }}/tamper', 'tampering a copy and verifying'));
   {% endif %}
+  // ---- statement recorder (MediaRecorder -> webm -> server converts to WAV -> Voice Transcribe)
+  const recBtn = document.getElementById('rec-btn');
+  if (recBtn) {
+    let rec = null, chunks = [];
+    const status = document.getElementById('rec-status');
+    recBtn.addEventListener('click', async () => {
+      if (rec && rec.state === 'recording') { rec.stop(); return; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+        rec = new MediaRecorder(stream); chunks = [];
+        rec.ondataavailable = e => chunks.push(e.data);
+        rec.onstop = () => {
+          stream.getTracks().forEach(t => t.stop());
+          const blob = new Blob(chunks, {type: rec.mimeType || 'audio/webm'});
+          const ext = (rec.mimeType || '').includes('ogg') ? 'ogg' : (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+          const dt = new DataTransfer(); dt.items.add(new File([blob], 'statement.' + ext, {type: blob.type}));
+          document.getElementById('rec-file').files = dt.files;
+          status.textContent = 'recorded ' + Math.round(blob.size / 1024) + ' KB — transcribing…';
+          recBtn.textContent = '● Record statement';
+          document.getElementById('stmt-form').submit();
+        };
+        rec.start(); recBtn.textContent = '■ Stop'; status.textContent = 'recording… speak, then press Stop';
+      } catch (e) { status.textContent = 'microphone not available: ' + e; }
+    });
+  }
   const node = document.getElementById('occ');
   if (!node) return;
   const occ = JSON.parse(node.textContent);
