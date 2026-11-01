@@ -103,11 +103,21 @@ def detect(
     merge_gap: int = 0,
     end_floor: int = 1,
 ) -> tuple[list[MilestoneHit], list[Cycle]]:
-    """Return (milestones of the longest complete cycle, all cycles after merging)."""
-    cycles = merge_gaps(
-        raw_cycles(smooth(samples, smooth_window), tau, min_docked, min_undocked, end_floor),
-        merge_gap,
-    )
+    """Return (milestones of the longest complete cycle, all cycles after merging).
+
+    min_docked / min_undocked / end_floor are counts of SAMPLES; merge_gap is in FRAME units
+    (the same units as sample[0]), because cycle start/end are frame indices.
+    """
+    sm = smooth(samples, smooth_window)
+    cycles = merge_gaps(raw_cycles(sm, tau, min_docked, min_undocked, end_floor), merge_gap)
+    # Leading-edge rule: if equipment was detected (even flickering) from near the start and the
+    # first solid cycle begins within merge_gap of that, the cycle began at the first detection.
+    first_inside = next((idx for idx, ov, _ in sm if ov >= tau), None)
+    if cycles and first_inside is not None and 0 < cycles[0].start - first_inside < merge_gap:
+        c0 = cycles[0]
+        cycles[0] = Cycle(
+            first_inside, c0.end, c0.conf, first_inside == sm[0][0], c0.departure_at_clip_end
+        )
     complete = [c for c in cycles if c.end is not None]
     if complete:
         best = max(complete, key=lambda c: c.end - c.start)

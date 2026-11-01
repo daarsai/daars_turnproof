@@ -101,7 +101,7 @@ def run(
     speed = clip_cfg.get("speed_factor")
     speed_src = clip_cfg.get("speed_factor_source")
     synced = bool(ref_start) and speed is not None
-    nose_right = clip_cfg.get("nose", "left") == "right"
+    nose_right = False  # zone presets are written per camera view; no mirroring needed
     scen = SCENARIOS / clip.stem
     clip_meta = json.loads((scen / "clip_meta.json").read_text())
     claim = discrepancy.load_claim(scen / "airline_claim.json")
@@ -155,7 +155,7 @@ def run(
                 "frame_index": h.frame_index,
                 "method": "sam31_vehicle_zone_overlap"
                 + ("_present_at_clip_start" if h.present_at_clip_start else "")
-                + ("_departure_at_clip_end" if h.departure_at_clip_end else ""),
+                + ("_absence_cut_short_by_clip_end" if h.departure_at_clip_end else ""),
                 "zone": zone_name,
                 "confidence": h.confidence,
                 "evidence_frames": [rec["id"]],
@@ -365,7 +365,7 @@ def run(
         "run_id": run_id,
         "status": status,
         "zone_used": zone_name,
-        "nose": "right" if nose_right else "left",
+        "view": clip_cfg.get("view", "side"),
         "zones_frame0": zones0,
         "cycles": {
             z: [{"start": c.start, "end": c.end, "conf": c.conf} for c in cs]
@@ -400,7 +400,7 @@ def main(argv: list[str] | None = None) -> None:
         os.environ.setdefault("PYTHONUNBUFFERED", "1")
         s = run(Path(a.clip), load_cfg(), a.run_id, not a.no_spark)
         keys = (
-            "run_id", "status", "zone_used", "cycles", "time_sync", "milestones", "spark",
+            "run_id", "status", "view", "zone_used", "cycles", "time_sync", "milestones", "spark",
             "observed_facts", "discrepancies", "proposed_claim", "packet", "packet_sha256",
         )  # fmt: skip
         show = {k: s[k] for k in keys}

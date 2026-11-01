@@ -84,7 +84,8 @@ def milestones_for_zone(
         _frames(_video_s(rules["docked_min_real_s"], speed, floor, cap), fps, step),
         _frames(_video_s(rules["undocked_min_real_s"], speed, floor, cap), fps, step),
         smooth_window=_frames(rules.get("smooth_window_s", 1.0), fps, step) | 1,
-        merge_gap=_frames(_video_s(rules["merge_gap_real_s"], speed, floor, cap * 2), fps, step),
+        merge_gap=_frames(_video_s(rules["merge_gap_real_s"], speed, floor, cap * 2), fps, step)
+        * step,  # cycle boundaries are frame indices
         end_floor=_frames(floor, fps, step),
     )
 

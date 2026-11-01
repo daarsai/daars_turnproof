@@ -90,8 +90,9 @@ def proposed_claim(
             "no loading_complete observed: equipment still at the hold when the clip ends",
         )
     elif spark_agrees is False:
-        family, basis = (
+        family, supported, basis = (
             "none",
+            None,  # no minutes stated until a human decides
             "keyframe review disagrees with the detected departure; operator decision required",
         )
     elif not synced:

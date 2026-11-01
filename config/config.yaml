@@ -9,19 +9,23 @@ sampling:
   logic_fps: 2            # occupancy series sampled at this rate (video fps / logic_fps = step)
   aircraft_every_s: 10
 
-# Zone presets. Fractions of the aircraft bounding box: x along the box (0 = left edge),
-# y down (0 = top). pad_out extends the zone below the box by that fraction of box height.
+# Zone presets, chosen per clip with `view`. Fractions of the SAM aircraft bounding box
+# (x from the left edge, y from the top; pad_out extends below the box by that fraction of its
+# height). Zones are named by the hold the camera actually shows; a hold that is hidden from
+# that camera angle is simply not defined for that view.
 zone_presets:
-  side:   # camera looks at the fuselage side (clip1, clip3)
-    aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
+  front_quarter:   # camera ahead of the wing, nose toward the jet bridge; the wing sweeps across
+                   # the box, so the forward hold sits left-of-centre low in the box (clip1, clip3)
+    forward_hold: {x0: 0.08, x1: 0.42, y0: 0.45, y1: 0.95, pad_out: 0.35}
+  side:            # true side-on view, nose at the LEFT of the frame
     forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
-  nose:   # camera looks at the nose; forward hold is low on one side by the engine (clip2)
+    aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
+  nose:            # camera looks at the nose; forward hold low on one side by the engine (clip2)
     forward_hold: {x0: 0.00, x1: 0.45, y0: 0.55, y1: 1.00, pad_out: 0.40}
-    aft_hold:     {x0: 0.55, x1: 1.00, y0: 0.55, y1: 1.00, pad_out: 0.40}
 
-zones: &side_zones   # default = side preset
-  aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
+zones:             # default = side preset (overridden per clip by `view`)
   forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
+  aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
 
 rules:
   docked_overlap_tau: 0.30
@@ -50,17 +54,14 @@ clips:
     reference_start_utc: "2026-10-30T17:58:00Z"
     speed_factor: 6.0
     speed_factor_source: estimated_from_vehicle_motion
-    view: side
-    nose: right                 # nose points right in the frame -> hold zones mirrored
+    view: front_quarter
   clip2:
     reference_start_utc: "2026-10-30T19:10:00Z"
     speed_factor: 9.0
     speed_factor_source: estimated_from_vehicle_motion
     view: nose
-    zones_enabled: [forward_hold]
   clip3:
     reference_start_utc: null   # demonstrates unsynced: no start time declared
     speed_factor: 12.0
     speed_factor_source: estimated_from_vehicle_motion
-    view: side
-    nose: right
+    view: front_quarter

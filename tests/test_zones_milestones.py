@@ -63,3 +63,13 @@ def test_flicker_is_merged_and_longest_cycle_wins():
     ]
     assert hits[0].present_at_clip_start is True
     assert hits[1].confidence > 0.5  # confidence comes from the docked run, never 0.0
+
+
+def test_leading_flicker_is_joined_to_first_cycle():
+    # detected at 0-4, flicker, solid from 13 onward, departs at 60, never returns
+    s = [(i, 0.6, 0.9) for i in range(5)] + [(i, 0.0, 0.0) for i in range(5, 13)]
+    s += [(i, 0.6, 0.9) for i in range(13, 60)] + [(i, 0.0, 0.0) for i in range(60, 80)]
+    hits, cycles = detect(s, 0.3, 6, 6, smooth_window=1, merge_gap=20)
+    assert len(cycles) == 1
+    assert (hits[0].frame_index, hits[0].present_at_clip_start) == (0, True)
+    assert hits[1].frame_index == 60
