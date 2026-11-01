@@ -4,7 +4,7 @@
 <div class="crumbs"><a href="/">Runs</a> › {{ run_id }}</div>
 <section class="run-head">
   <div>
-    <h1>{% if st.state == 'failed' %}Run failed{% else %}Processing {{ run_id }}{% endif %}</h1>
+    <h1>{% if st.state == 'failed' %}Run failed{% elif st.state == 'recording' %}Recording {{ run_id }}{% else %}Processing {{ run_id }}{% endif %}</h1>
     <div class="muted">clip <span class="mono">{{ st.clip }}</span> · started {{ st.started_at_utc }}
       {% if st.clip_cfg %} · view <b>{{ st.clip_cfg.view }}</b> · speed ×{{ st.clip_cfg.speed_factor }} · start {{ st.clip_cfg.reference_start_utc or 'not declared (unsynced)' }}{% endif %}</div>
   </div>
@@ -14,13 +14,15 @@
 </section>
 
 {% if st.state == 'failed' %}
+{% if st.capture %}<div class="banner">Capture for <b>{{ st.capture.flight_number }}</b> at stand {{ st.capture.stand }} from camera <span class="mono">{{ st.capture.camera_id }}</span> · {{ st.capture.seconds }} s · declared start = feed on-block {{ st.capture.on_block_utc }}</div>{% endif %}
 <div class="banner warn"><b>{{ st.error }}</b></div>
 <section class="card"><h2>Details</h2><pre class="term bad">{{ st.traceback }}</pre>
 <div class="muted small">Common causes: MODEL_API_KEY missing from <code>.env</code> (SAM and Spark calls need it unless cached), ffmpeg not installed, or a clip that is not a video. Fix and upload again; this folder can be hidden with <code>make archive RUN={{ run_id }}</code>.</div></section>
 {% else %}
+{% if st.capture %}<div class="banner">Capture for <b>{{ st.capture.flight_number }}</b> at stand {{ st.capture.stand }} from camera <span class="mono">{{ st.capture.camera_id }}</span> · {{ st.capture.seconds }} s · declared start = feed on-block {{ st.capture.on_block_utc }} · {{ st.capture.source }}</div>{% endif %}
 <section class="card hero-card">
   <h2>Stages</h2>
-  {% set stages = [('ingest', 'Frames extracted, hashed and encrypted'), ('sam', 'SAM 3.1: aircraft, vehicles, persons'), ('redact', 'Persons blurred, redacted frames hashed'), ('rule', 'Hold-zone occupancy and milestones'), ('spark', 'Muse Spark keyframe check'), ('packet', 'Discrepancy table, overlays, signed packet')] %}
+  {% set stages = ([('recording', 'Recording from the stand camera')] if st.capture else []) + [('ingest', 'Frames extracted, hashed and encrypted'), ('sam', 'SAM 3.1: aircraft, vehicles, persons'), ('redact', 'Persons blurred, redacted frames hashed'), ('rule', 'Hold-zone occupancy and milestones'), ('spark', 'Muse Spark keyframe check'), ('packet', 'Discrepancy table, overlays, signed packet')] %}
   {% set cur = (st.stage or '').split(':')[0] %}
   {% set names = stages | map(attribute=0) | list %}
   {% set cur_i = names.index(cur) if cur in names else -1 %}

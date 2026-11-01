@@ -186,3 +186,7 @@ video { width: 100%; background: #000; border-radius: 4px; display: block; }
 .tile .s { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .board-scale { margin-top: 10px; }
 .field textarea { display: block; width: 100%; margin-top: 4px; font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; }
+form.inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.secs { width: 64px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
+.btn.small-btn { font-size: 12.5px; padding: 5px 10px; }
+.good-text { color: var(--good); } .bad-text { color: var(--bad); }

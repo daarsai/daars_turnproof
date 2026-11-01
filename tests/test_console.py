@@ -17,6 +17,7 @@ from turnproof.evidence import packet as packet_mod
 from turnproof.evidence.canonical import sha256_hex
 from turnproof.perception.sam_parse import Det
 from turnproof.review import app as app_mod
+from turnproof.review import webhooks
 from turnproof.review.overlay import draw_overlay, write_occupancy
 from turnproof.review.store import RunStore
 
@@ -156,6 +157,8 @@ def run_dir(tmp_path, monkeypatch):
     }  # fmt: skip
     (d / "run_summary.json").write_text(json.dumps(summary))
     monkeypatch.setattr(app_mod, "store", RunStore(data))
+    monkeypatch.setattr(app_mod, "DATA_DIR", data)
+    monkeypatch.setattr(webhooks, "targets", lambda data_dir=None: [])  # no outbound HTTP here
     return d
 
 
@@ -272,3 +275,52 @@ def test_public_verify_page_with_zip_and_log(run_dir):
     assert bad != packet_bytes
     r = c.post("/verify", files={"packet": ("p.json", bad, "application/json")})
     assert "TAMPERED OR INVALID" in r.text
+
+
+def test_webhook_delivery_is_signed_and_lands_in_the_inbox(run_dir, monkeypatch):
+    """On send, the packet is POSTed to the subscribed endpoint with an HMAC signature; the
+    demo inbox verifies it. httpx.post is routed into the test client so no socket is needed."""
+    c = TestClient(app_mod.app)
+    secret = "unit-test-secret"
+    monkeypatch.setattr(
+        webhooks,
+        "targets",
+        lambda data_dir=None: [
+            {"url": "http://testserver/hooks/inbox", "secret": secret, "events": ["packet.sent"]}
+        ],
+    )
+
+    def fake_post(url, content=None, headers=None, timeout=None):
+        return c.post(url.replace("http://testserver", ""), content=content, headers=headers)
+
+    monkeypatch.setattr(webhooks.httpx, "post", fake_post)
+    c.post(f"/runs/{RUN}/action", data={"action": "confirm", "note": "ok"})
+    c.post(f"/runs/{RUN}/action", data={"action": "send"})
+    rev = app_mod.store.review(RUN)
+    assert rev["webhooks"] and rev["webhooks"][0]["ok"] and rev["webhooks"][0]["status"] == 200
+    assert app_mod.store.events(RUN)[-1]["action"] == "webhook_delivered"
+    inbox = sorted((app_mod.store.runs_dir.parent / "webhook_inbox").glob("*.json"))
+    assert len(inbox) == 1
+    doc = json.loads(inbox[0].read_text())
+    assert doc["signature_ok"] is True and doc["event"] == "packet.sent"
+    assert doc["payload"]["packet"]["review"]["decision"] == "confirmed"
+    r = c.get("/hooks/inbox")
+    assert r.status_code == 200 and PID in r.text and "valid" in r.text
+    # a tampered body is rejected by the inbox
+    bad = c.post(
+        "/hooks/inbox",
+        content=b'{"packet_id": "x"}',
+        headers={"X-TurnProof-Signature": "00", "X-TurnProof-Event": "packet.sent"},
+    )
+    assert bad.status_code == 401
+
+
+def test_api_upload_requires_key_when_configured(run_dir, monkeypatch):
+    monkeypatch.setenv("TURNPROOF_API_KEYS", "k1, k2")
+    c = TestClient(app_mod.app)
+    r = c.post("/api/upload", files={"clip": ("c.mp4", b"x", "video/mp4")})
+    assert r.status_code == 401
+    r = c.post(
+        "/api/upload", files={"clip": ("c.txt", b"x", "text/plain")}, headers={"X-API-Key": "k2"}
+    )
+    assert r.status_code == 400  # authenticated, then rejected for not being a video

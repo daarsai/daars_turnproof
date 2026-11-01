@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -28,9 +29,11 @@ from starlette.datastructures import UploadFile
 
 from turnproof.evidence.canonical import sha256_hex
 from turnproof.evidence.pdf import render_packet_pdf
+from turnproof.ingest import camera as camera_mod
+from turnproof.ingest import flights as flights_mod
 from turnproof.pipeline import ref_time
 from turnproof.reason import asr_client, intake
-from turnproof.review import jobs
+from turnproof.review import jobs, webhooks
 from turnproof.review.board import station_board
 from turnproof.review.state_machine import TransitionError
 from turnproof.review.store import RunStore
@@ -746,10 +749,29 @@ async def upload(request: Request):
     return _redirect(f"/runs/{run_id}", msg="upload received; the run has started")
 
 
+def api_keys() -> set[str]:
+    return {k.strip() for k in os.environ.get("TURNPROOF_API_KEYS", "").split(",") if k.strip()}
+
+
+def require_api_key(request: Request) -> None:
+    """Machine endpoints need X-API-Key (or Authorization: Bearer) when TURNPROOF_API_KEYS is
+    set; with no keys configured (local demo) they are open and say so in the response."""
+    keys = api_keys()
+    if not keys:
+        return
+    given = (
+        request.headers.get("x-api-key")
+        or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    )
+    if given not in keys:
+        raise HTTPException(401, "missing or invalid API key (X-API-Key)")
+
+
 @app.post("/api/upload")
 async def api_upload(request: Request):
     """Machine entry point (a station's video system can push clips): multipart, same fields
-    as the form. Returns the run id and where to poll."""
+    as the form. Returns the run id and where to poll. Needs X-API-Key when keys are set."""
+    require_api_key(request)
     form = await request.form()
     clip = form.get("clip")
     if not isinstance(clip, UploadFile) or not clip.filename:
@@ -765,7 +787,72 @@ async def api_upload(request: Request):
         None,
         str(form.get("event") or "loading"),
     )
-    return {"run_id": run_id, "status": f"/api/runs/{run_id}/status", "page": f"/runs/{run_id}"}
+    return {
+        "run_id": run_id,
+        "status": f"/api/runs/{run_id}/status",
+        "page": f"/runs/{run_id}",
+        "auth": "api_key" if api_keys() else "open (set TURNPROOF_API_KEYS to require X-API-Key)",
+    }
+
+
+# ---- webhook inbox: stands in for the airline's system in the demo ---------------------------
+def inbox_dir() -> Path:
+    d = DATA_DIR / "webhook_inbox"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@app.post("/hooks/inbox")
+async def hooks_inbox(request: Request):
+    body = await request.body()
+    secret = next(
+        (
+            t.get("secret", "")
+            for t in webhooks.targets(DATA_DIR)
+            if t["url"].endswith("/hooks/inbox")
+        ),
+        "",
+    )
+    sig = request.headers.get("x-turnproof-signature")
+    ok = webhooks.verify(secret, body, sig) if secret else True
+    try:
+        doc = json.loads(body)
+    except ValueError as e:
+        raise HTTPException(400, "body is not JSON") from e
+    rec = {
+        "received_at_utc": jobs._now(),
+        "event": request.headers.get("x-turnproof-event"),
+        "signature_ok": ok,
+        "packet_id": doc.get("packet_id"),
+        "packet_sha256": doc.get("packet_sha256"),
+        "flight": doc.get("flight"),
+        "proposed_claim": doc.get("proposed_claim"),
+        "links": doc.get("links"),
+        "bytes": len(body),
+    }
+    name = f"{rec['received_at_utc'].replace(':', '')}-{rec['packet_id']}-{rec['event']}.json"
+    (inbox_dir() / name).write_text(json.dumps({**rec, "payload": doc}, indent=1))
+    if not ok:
+        raise HTTPException(401, "bad signature")
+    return {"received": True, "signature_ok": ok}
+
+
+@app.get("/hooks/inbox", response_class=HTMLResponse)
+def hooks_inbox_page(request: Request):
+    items = []
+    for p in sorted(inbox_dir().glob("*.json"), reverse=True)[:50]:
+        d = json.loads(p.read_text())
+        d.pop("payload", None)
+        items.append(d)
+    return templates.TemplateResponse(
+        request,
+        "inbox.html",
+        ctx(
+            request,
+            items=items,
+            targets=[{**t, "secret": "•••"} for t in webhooks.targets(DATA_DIR)],
+        ),
+    )
 
 
 @app.get("/api/runs/{run_id}/status")
@@ -819,6 +906,202 @@ async def statement(request: Request, run_id: str):
         return _redirect(f"/runs/{run_id}", err="record a statement or type one")
     store.set_statement(run_id, stmt)
     return _redirect(f"/runs/{run_id}", msg="statement recorded in the event log")
+
+
+# ---- station: cameras x flights -> captures without a human upload ----------------------------
+def cameras_path() -> Path:
+    return DATA_DIR / "cameras.json"
+
+
+def load_station_cameras() -> list[camera_mod.Camera]:
+    p = cameras_path()
+    if p.exists():
+        return camera_mod.load_cameras(p)
+    demo = Path("config/cameras_demo.json")
+    return camera_mod.load_cameras(demo) if demo.exists() else []
+
+
+def flights_feed_path() -> Path:
+    p = DATA_DIR / "flights.json"
+    return p if p.exists() else Path("config/flights_demo.json")
+
+
+def load_station_flights() -> list[flights_mod.Flight]:
+    p = flights_feed_path()
+    return flights_mod.load_aodb_file(p) if p.exists() else []
+
+
+def scenario_for_flight(flight_number: str, flight_date: str | None) -> Path | None:
+    """The claim + log already on file for this flight (repo scenarios or claim intake)."""
+    best = None
+    for base in (Path("scenarios"), DATA_DIR / "scenarios"):
+        for meta_path in sorted(base.glob("*/clip_meta.json")):
+            meta = json.loads(meta_path.read_text())
+            if meta.get("flight_number") != flight_number:
+                continue
+            if flight_date and meta.get("flight_date") == flight_date:
+                return meta_path.parent
+            best = best or meta_path.parent
+    return best
+
+
+def placeholder_scenario(
+    flight: flights_mod.Flight, camera: camera_mod.Camera, run_id: str
+) -> Path:
+    """No claim on file yet: run anyway with an empty claim; the claim can be attached later
+    through claim intake (the packet then says so)."""
+    meta = {
+        "station": flight.station, "stand": camera.stand, "flight_number": flight.flight_number,
+        "flight_date": flight.flight_date, "airline": flight.airline or "Airline",
+        "handler": "Handler", "camera_id": camera.id, "data_label": "synthetic test data",
+        "registration": flight.registration,
+    }  # fmt: skip
+    claim = {
+        "delay_code": "00",
+        "minutes": 0,
+        "source": "no airline claim received yet (placeholder)",
+    }
+    return jobs.write_scenario(DATA_DIR / "scenarios" / run_id, meta, claim, [])
+
+
+@app.get("/station", response_class=HTMLResponse)
+def station_page(request: Request):
+    cams = load_station_cameras()
+    fl = load_station_flights()
+    windows = flights_mod.plan(fl, cams)
+    probe_id = request.query_params.get("probe")
+    probes = {}
+    if probe_id:
+        cam = next((c for c in cams if c.id == probe_id), None)
+        if cam:
+            probes[cam.id] = camera_mod.probe(cam.url)
+    planned_flights = {w.flight.flight_number + w.flight.flight_date for w in windows}
+    others = [f for f in fl if f.flight_number + f.flight_date not in planned_flights]
+    claims = {
+        f.flight_number: scenario_for_flight(f.flight_number, f.flight_date) is not None for f in fl
+    }
+    return templates.TemplateResponse(
+        request,
+        "station.html",
+        ctx(
+            request,
+            cameras=[c.public() for c in cams],
+            cameras_source="data/cameras.json"
+            if cameras_path().exists()
+            else "config/cameras_demo.json (demo)",
+            feed_source=str(flights_feed_path()),
+            windows=windows,
+            others=others,
+            claims=claims,
+            probes=probes,
+            views=camera_mod.VIEWS,
+            events=event_options(),
+            processing=processing_runs(),
+            adsb=None,
+        ),
+    )
+
+
+@app.post("/station/cameras")
+async def station_add_camera(request: Request):
+    f = await request.form()
+    cam_id = str(f.get("id") or "").strip()
+    url = str(f.get("url") or "").strip()
+    stand = str(f.get("stand") or "").strip().upper()
+    if not (cam_id and url and stand):
+        return _redirect("/station", err="camera id, stand and stream URL are required")
+    if str(f.get("view") or "") not in camera_mod.VIEWS:
+        return _redirect("/station", err="unknown camera view")
+    cams = [c for c in load_station_cameras() if c.id != cam_id]
+    cams.append(
+        camera_mod.Camera(
+            id=cam_id,
+            stand=stand,
+            station=str(f.get("station") or "BLR").strip().upper(),
+            url=url,
+            view=str(f.get("view")),
+            speed_factor=float(f.get("speed_factor") or 1.0),
+            speed_factor_source=str(f.get("speed_source") or "declared_by_uploader"),
+            note=str(f.get("note") or "").strip(),
+        )
+    )
+    camera_mod.save_cameras(cameras_path(), cams)
+    return _redirect("/station", msg=f"camera {cam_id} saved for stand {stand}")
+
+
+@app.post("/station/capture")
+async def station_capture(request: Request):
+    """Record the stand camera for this flight's window (or the seconds given) and run."""
+    f = await request.form()
+    flight_number = str(f.get("flight_number") or "").strip()
+    flight_date = str(f.get("flight_date") or "").strip()
+    cam_id = str(f.get("camera_id") or "").strip()
+    seconds = float(f.get("seconds") or 0) or 0.0
+    event = str(f.get("event") or "loading")
+    cams = {c.id: c for c in load_station_cameras()}
+    cam = cams.get(cam_id)
+    flight = next(
+        (
+            x
+            for x in load_station_flights()
+            if x.flight_number == flight_number
+            and (not flight_date or x.flight_date == flight_date)
+        ),
+        None,
+    )
+    if cam is None or flight is None:
+        return _redirect("/station", err="unknown camera or flight")
+    if not flight.on_block_utc:
+        return _redirect(
+            "/station", err=f"{flight_number} has no on-block time yet; nothing to record"
+        )
+    if event not in event_options():
+        return _redirect("/station", err="unknown event")
+    windows = {w.flight.flight_number: w for w in flights_mod.plan([flight], [cam])}
+    w = windows.get(flight_number)
+    if seconds <= 0:
+        seconds = min(600.0, (w.seconds if w else 60.0) / max(1.0, cam.speed_factor))
+    seconds = max(5.0, min(seconds, 3600.0))
+    run_hint = f"{flight_number}-{cam.stand}".lower()
+    scen = scenario_for_flight(flight_number, flight_date)
+    run_id = jobs.start_capture_run(
+        camera=cam,
+        flight=flight,
+        seconds=seconds,
+        scenario_dir=scen
+        or placeholder_scenario(flight, cam, run_hint + "-" + os.urandom(2).hex()),
+        data_dir=DATA_DIR,
+        event=event,
+        use_spark=f.get("use_spark") is not None or f.get("use_spark") is None,
+    )
+    return _redirect(
+        f"/runs/{run_id}",
+        msg=f"recording {seconds:.0f} s from {cam.id} for {flight_number}; the run starts when the recording ends",
+    )
+
+
+@app.get("/api/station/plan")
+def api_station_plan():
+    cams = load_station_cameras()
+    return [w.public() for w in flights_mod.plan(load_station_flights(), cams)]
+
+
+@app.get("/api/station/arrivals")
+def api_station_arrivals(icao: str = "VOBL", hours: float = 2.0, iata: str = "BLR"):
+    """Live arrivals from ADS-B (OpenSky, anonymous): landing times only; stands and on-block
+    times come from the AODB. Errors are returned, not hidden."""
+    try:
+        fl = flights_mod.opensky_arrivals(icao.upper(), hours, iata.upper())
+    except (httpx.HTTPError, ValueError) as e:
+        return JSONResponse(
+            {"ok": False, "error": f"{type(e).__name__}: {e}", "flights": []}, status_code=502
+        )
+    return {
+        "ok": True,
+        "source": "adsb_opensky",
+        "airport": icao.upper(),
+        "flights": [x.public() for x in fl],
+    }
 
 
 # ---- public verify page: anyone, any packet, no account -----------------------------------------

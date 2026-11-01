@@ -1,0 +1,21 @@
+{
+  "_note": "Synthetic AODB-style feed for the demo. Real deployments read the airport's AODB or the handler's ops system; the shape is the same. Times are UTC.",
+  "station": "BLR",
+  "flights": [
+    {"flight_number": "XY123", "airline": "XY Airways", "flight_date": "2026-10-30", "stand": "D14",
+     "registration": "VT-ABC", "sta_utc": "2026-10-30T17:45:00Z", "eta_utc": "2026-10-30T17:50:00Z",
+     "landed_utc": "2026-10-30T17:51:00Z", "on_block_utc": "2026-10-30T17:58:00Z", "off_block_utc": "2026-10-30T18:40:00Z",
+     "status": "off_block"},
+    {"flight_number": "XY456", "airline": "XY Airways", "flight_date": "2026-10-30", "stand": "D16",
+     "registration": "VT-DEF", "sta_utc": "2026-10-30T19:00:00Z", "eta_utc": "2026-10-30T19:03:00Z",
+     "landed_utc": "2026-10-30T19:04:00Z", "on_block_utc": "2026-10-30T19:10:00Z", "off_block_utc": "2026-10-30T19:55:00Z",
+     "status": "off_block"},
+    {"flight_number": "XY789", "airline": "XY Airways", "flight_date": "2026-10-30", "stand": "C02",
+     "registration": "VT-GHI", "sta_utc": "2026-10-30T17:40:00Z", "eta_utc": "2026-10-30T17:44:00Z",
+     "landed_utc": "2026-10-30T17:45:00Z", "on_block_utc": "2026-10-30T17:50:00Z", "off_block_utc": "2026-10-30T18:35:00Z",
+     "status": "off_block"},
+    {"flight_number": "XY901", "airline": "XY Airways", "flight_date": "2026-10-30", "stand": "D14",
+     "registration": "VT-JKL", "sta_utc": "2026-10-30T20:10:00Z", "eta_utc": "2026-10-30T20:25:00Z",
+     "landed_utc": null, "on_block_utc": null, "off_block_utc": null, "status": "airborne"}
+  ]
+}

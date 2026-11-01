@@ -1,0 +1,8 @@
+[
+  {"id": "stand-d14-01", "stand": "D14", "station": "BLR", "url": "rtsp://127.0.0.1:8554/stand-d14",
+   "view": "front_quarter", "speed_factor": 6.0, "speed_factor_source": "estimated_from_vehicle_motion",
+   "note": "DEMO: a local RTSP test stream looping licensed time-lapse footage (mediamtx). A real stand camera runs at speed 1.0."},
+  {"id": "stand-d16-01", "stand": "D16", "station": "BLR", "url": "rtsp://127.0.0.1:8554/stand-d16",
+   "view": "nose", "speed_factor": 9.0, "speed_factor_source": "estimated_from_vehicle_motion",
+   "note": "DEMO stream (not started unless you loop clip2 into mediamtx as stand-d16)."}
+]

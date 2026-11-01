@@ -146,6 +146,9 @@ so there is no <em>{{ (s.event.milestones.end if s.event else 'loading_complete'
     {% if review.history %}
     <ul class="history">{% for h in review.history %}<li><span class="mono small">{{ h.t_utc | fmt_t if h.t_utc else '' }}</span> <b>{{ h.actor }}</b> {{ h.action }} → {{ h.to }}{% if h.note %} — <i>{{ h.note }}</i>{% endif %}</li>{% endfor %}</ul>
     {% endif %}
+    {% if review.webhooks %}
+    <ul class="history">{% for w in review.webhooks %}<li><span class="mono small">{{ w.t_utc | fmt_t }}</span> webhook <b>{{ w.event }}</b> → {{ w.url }} {% if w.ok %}<span class="chip good tiny">HTTP {{ w.status }}</span>{% else %}<span class="chip bad tiny">{{ w.error or w.status }}</span>{% endif %}</li>{% endfor %}</ul>
+    {% endif %}
     {% if packet %}<div class="small">Packet <a class="mono" href="/packets/{{ packet.packet_id }}">{{ packet.packet_id }}</a> · sha256 <span class="mono">{{ packet.packet_sha256 | short(16) }}…</span> · signed {{ packet.signature.alg }} ({{ packet.signature.key_id }})</div>{% endif %}
   </section>
 </div>

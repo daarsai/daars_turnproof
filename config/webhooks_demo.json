@@ -1,0 +1,5 @@
+[
+  {"url": "{base_url}/hooks/inbox", "secret": "demo-shared-secret-change-me",
+   "events": ["packet.sent", "packet.acknowledged", "packet.disputed"],
+   "_note": "DEMO target: TurnProof's own inbox page stands in for the airline's claims system. A real target is the airline's endpoint; the secret is agreed per contract."}
+]

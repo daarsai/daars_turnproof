@@ -12,7 +12,7 @@
   </div>
   <div class="howto">
     <a class="btn primary big upload-btn" href="/upload">Upload clip →</a>
-    <div class="step"><b>1</b> <a href="/intake">Read the airline's claim</a> with Muse Spark, then upload the clip with your log</div>
+    <div class="step"><b>1</b> <a href="/intake">Read the airline's claim</a> with Muse Spark; footage comes from an <a href="/upload">upload</a> or from the <a href="/station">stand camera at on-block</a></div>
     <div class="step"><b>2</b> Open the card, check the pictures, confirm or reject</div>
     <div class="step"><b>3</b> Send; the airline verifies the signed packet</div>
   </div>
@@ -40,7 +40,7 @@
   {% for st in processing %}
   <a class="rcard processing" href="/runs/{{ st.run_id }}">
     <div class="rcard-body">
-      <div class="rcard-title">{% if st.state == 'failed' %}Run failed{% else %}Processing…{% endif %} <span class="mono small">{{ st.run_id }}</span></div>
+      <div class="rcard-title">{% if st.state == 'failed' %}Run failed{% elif st.state == 'recording' %}Recording from camera…{% else %}Processing…{% endif %} <span class="mono small">{{ st.run_id }}</span></div>
       <div class="muted small">{{ st.clip }} · started {{ st.started_at_utc | short(16) }}</div>
       <div class="rcard-ms">{% if st.state == 'failed' %}<span class="chip bad">{{ st.error }}</span>{% else %}<span class="chip warn">{{ st.stage }}</span>{% endif %}</div>
       <div class="rcard-cta">{% if st.state == 'failed' %}See the error →{% else %}Watch progress →{% endif %}</div>
@@ -145,7 +145,7 @@ The handler sends a packet from the run page (Confirm → Send to airline). <a h
 {% endblock %}
 {% block scripts %}
 <script>
-{% if processing and (processing | selectattr('state', 'in', ['queued', 'running']) | list) %}setTimeout(() => window.location.reload(), 8000);{% endif %}
+{% if processing and (processing | selectattr('state', 'in', ['queued', 'running', 'recording']) | list) %}setTimeout(() => window.location.reload(), 8000);{% endif %}
 document.querySelectorAll('.earlier-open').forEach(el => el.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation(); window.location = el.dataset.href;
 }));

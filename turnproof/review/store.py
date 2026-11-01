@@ -13,6 +13,7 @@ from pathlib import Path
 
 from turnproof.events.eventlog import EventLog
 from turnproof.evidence import packet as packet_mod
+from turnproof.review import webhooks
 from turnproof.review.state_machine import TRANSITIONS, Candidate, TransitionError
 
 ROLE_ACTOR = {"handler": "handler_operator", "airline": "airline_reviewer"}
@@ -128,7 +129,12 @@ class RunStore:
         d = self.run_dir(run_id)
         log = EventLog(d / "events.db", run_id)
         log.append(actor, action, {"note": note}, prev, c.state)
-        out = {**asdict(c), "statement": rev.get("statement"), "updated_at_utc": _now()}
+        out = {
+            **asdict(c),
+            "statement": rev.get("statement"),
+            "webhooks": list(rev.get("webhooks") or []),
+            "updated_at_utc": _now(),
+        }
         if action in ("send", "acknowledge", "dispute"):
             self._reissue_packet(run_id, out, action, note, log)
         log.export_jsonl(d / "eventlog.jsonl")
@@ -174,6 +180,15 @@ class RunStore:
             "packet_reissued",
             {"packet_sha256": new["packet_sha256"], "prev": draft["packet_sha256"], "on": action},
         )
+        event = {
+            "send": "packet.sent",
+            "acknowledge": "packet.acknowledged",
+            "dispute": "packet.disputed",
+        }[action]
+        results = webhooks.deliver(event, run_id, new, self.runs_dir.parent)
+        for r in results:
+            log.append("system", "webhook_delivered" if r["ok"] else "webhook_failed", r)
+        rev.setdefault("webhooks", []).extend(results)
 
     # ---- operator statement (typed, or spoken -> Muse Voice Transcribe) ----------------
     def set_statement(self, run_id: str, statement: dict) -> dict:

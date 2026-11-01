@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Webhook inbox{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/">Home</a> › Webhook inbox</div>
+<section class="run-head">
+  <div>
+    <h1>Webhook inbox <span class="muted small">stands in for the airline's claims system</span></h1>
+    <div class="muted">When the handler sends a packet (and when the airline answers), TurnProof POSTs the signed packet to every subscribed endpoint with an HMAC-SHA256 signature over the body. In production the target is the airline's system; in this demo it is this inbox, so the whole loop is visible on one machine.</div>
+  </div>
+</section>
+<div class="grid-2">
+  <section class="card">
+    <h2>Deliveries received</h2>
+    {% if items %}
+    <table class="disc">
+      <thead><tr><th>Received (UTC)</th><th>Event</th><th>Packet</th><th>Flight</th><th>Video supports</th><th>Signature</th></tr></thead>
+      <tbody>
+      {% for it in items %}
+      <tr>
+        <td class="mono small">{{ it.received_at_utc | fmt_t }}</td>
+        <td><span class="chip tiny">{{ it.event }}</span></td>
+        <td class="mono small"><a href="/packets/{{ it.packet_id }}">{{ it.packet_id }}</a><div class="muted tiny">sha256 {{ it.packet_sha256 | short(12) }}…</div></td>
+        <td class="small">{{ it.flight.number if it.flight else '' }}</td>
+        <td class="small">{% if it.proposed_claim %}{{ it.proposed_claim.delay_code_family }} · {% if it.proposed_claim.minutes_supported_by_video is none %}n/a{% else %}{{ it.proposed_claim.minutes_supported_by_video }} min{% endif %}{% endif %}</td>
+        <td>{% if it.signature_ok %}<span class="chip good tiny">valid</span>{% else %}<span class="chip bad tiny">invalid</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty small">Nothing received yet. Send a packet from a run page.</div>{% endif %}
+  </section>
+  <section class="card">
+    <h2>Subscribed endpoints</h2>
+    <table class="disc"><thead><tr><th>URL</th><th>Events</th></tr></thead><tbody>
+      {% for t in targets %}<tr><td class="mono small">{{ t.url }}</td><td class="small">{{ t.events | join(', ') }}</td></tr>{% endfor %}
+    </tbody></table>
+    <div class="muted small">Configured in <code>data/webhooks.json</code> (or <code>TURNPROOF_WEBHOOK_URL</code>); the demo uses <code>config/webhooks_demo.json</code>. Header <code>X-TurnProof-Signature</code> = HMAC-SHA256 of the body with the shared secret; the packet inside is verified separately with the public key.</div>
+  </section>
+</div>
+{% endblock %}

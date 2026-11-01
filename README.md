@@ -72,6 +72,40 @@ Airlines send MVT / DLA telex lines, emails, or scanned delay reports, not JSON.
 
 The handler's front page opens with the numbers a station manager runs on, all computed from the runs: turnarounds reviewed, minutes claimed vs minutes the video supports, **penalty exposure the video does not support** at the SLA rate declared per contract (synthetic in the demo), packets sent / acknowledged / disputed, Spark agreement with the rule, model spend per turnaround.
 
+## From one clip to a station: how footage and claims arrive
+
+| Input | v0.1 (this repository) | Pilot |
+| --- | --- | --- |
+| Footage | **Upload** (form or `POST /api/upload`), or the **Station** page: stand cameras registered by RTSP/ONVIF/HTTP URL, recorded with ffmpeg for a flight's on-block → off-block window | the same recorder, pulling from the VMS (Milestone, Genetec, Axis…) automatically at on-block |
+| Flight context | AODB-style feed file (`config/flights_demo.json`, synthetic) + a live ADS-B adapter (OpenSky) for landing times | the airport's AODB or the handler's ops system; ADS-B as a cross-check |
+| Claim | **Claim intake**: MVT/DLA telex, email or report photo → Muse Spark → operator confirms | the same, fed from the handler's mailbox / telex gateway |
+| Output to the airline | **Webhook** on send / acknowledge / dispute: the signed packet, HMAC-signed body, to the subscribed endpoint (demo: the built-in inbox page) | the airline's claims system; the public `/verify` page for anyone else |
+
+Machine endpoints (`/api/upload`) take an `X-API-Key` when `TURNPROOF_API_KEYS` is set; the demo runs open on localhost and says so in its responses.
+
+## Scale architecture (what changes for a pilot, and what does not)
+
+```mermaid
+flowchart LR
+    subgraph Inputs
+      VMS[VMS / ONVIF cameras<br/>RTSP pull] --> REC[Recorder<br/>ffmpeg, per stand]
+      AODB[AODB / ops system<br/>flight · stand · on/off-block] --> SCH[Scheduler<br/>capture windows]
+      ADSB[ADS-B feed] --> SCH
+      MVT[Telex / email / report photo] --> INT[Claim intake<br/>Muse Spark → operator]
+    end
+    SCH --> REC
+    REC --> Q[Job queue]
+    Q --> P[Pipeline workers<br/>SAM 3.1 · rule · Spark]
+    P --> OS[(Object storage<br/>frames · captures · packets)]
+    P --> DB[(Postgres<br/>runs · reviews · event log)]
+    INT --> DB
+    DB --> C[Console<br/>handler · airline · airport tenants]
+    C --> WH[Webhooks<br/>signed deliveries]
+    C --> V[Public verify]
+```
+
+Already as it will be in a pilot: the pipeline, the packet format and verifier, the event library, the rule thresholds in real seconds, the recorder and scheduler, intake, webhooks. What v0.1 keeps simple on purpose: runs are folders (one folder per run is already the object-storage layout), the event log is SQLite per run, jobs are threads in the console process, roles are a toggle instead of logins. A pilot swaps those four for object storage, Postgres, a queue, and tenant logins — none of them touches a model or the packet.
+
 ## Meta models
 
 | Model | Used for | How | Never does |
@@ -133,6 +167,7 @@ Only `system`, `handler_operator` and `airline_reviewer` move states. Reject, co
 - Hold-door state is `unknown` on this footage; the camera angle never shows the door clearly. The milestone exists in the schema and is only written when Spark sees a closed door.
 - The hold zone is a configured fraction of the aircraft box per camera view, not learned. A new camera angle needs a preset (five numbers).
 - Only the loading event is validated on footage; fuelling and catering are defined in the event library and labelled unvalidated wherever they appear.
+- The Station page's stream is a local RTSP loop of licensed time-lapse footage in the demo (speed ×6); a real stand camera runs at ×1. The ADS-B adapter gives landing times, never stands or on-block times.
 - No tracking: a second vehicle passing through the zone extends the docked period. Smoothing and gap-merging handle short events; Spark's keyframe check catches the rest, and the operator decides.
 - Accuracy is not claimed. The console shows every number the rule used; the packet records every model and prompt by hash.
 
