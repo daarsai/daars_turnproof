@@ -45,8 +45,8 @@ replay:            # make replay RUN=<run_id>   re-run that run's clip from the 
 serve:             # review console -> http://localhost:8080
 	$(VENV_PY) -m uvicorn turnproof.review.app:app --host 127.0.0.1 --port 8080
 
-verify:            # make verify PACKET=data/runs/<run>/packets/<id>.json
-	$(PY) verify_packet.py $(PACKET)
+verify:            # make verify PACKET=data/runs/<run>/packets/<id>.json   (all 7 checks)
+	$(PY) verify_packet.py $(PACKET) --frames $(dir $(PACKET))../display --log $(dir $(PACKET))../eventlog.jsonl
 
 tamper:            # make tamper PACKET=...
 	$(PY) scripts/tamper_demo.py $(PACKET)
