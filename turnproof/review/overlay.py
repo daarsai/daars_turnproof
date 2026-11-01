@@ -101,7 +101,7 @@ def draw_overlay(
     if aircraft_box:
         _label(img, "aircraft  SAM 3.1", int(aircraft_box[0]), int(aircraft_box[1]) - 30, NAVY)
     for name, z in zones.items():
-        _label(img, f"hold zone  {name}", int(z[0]) + 4, int(z[1]) + 4, ORANGE, 0.58)
+        _label(img, f"zone  {name}", int(z[0]) + 4, int(z[1]) + 4, ORANGE, 0.58)
     if active_zone in zones:
         z = zones[active_zone]
         if n_in:

@@ -187,7 +187,11 @@ def run(
         milestone_names=ms_names,
     )
     ab0 = aircraft_box_for(0, aircraft)
-    zones0 = all_zones(ab0, cfg["zones"], nose_right) if ab0 else {}
+    zones0 = (
+        {z: b for z, b in all_zones(ab0, cfg["zones"], nose_right).items() if z in event["zones"]}
+        if ab0
+        else {}
+    )
     milestones: list[dict] = []
     for h in hits:
         rec = nearest(records, h.frame_index)
@@ -333,13 +337,14 @@ def run(
     n = max(records) + 1
     context_ids = [nearest(records, i)["id"] for i in (0, n // 4, n // 2, (3 * n) // 4, n - 1)]
     overlay_ids = sorted(set(ev_ids) | set(context_ids))
+    event_zones = {z: f for z, f in cfg["zones"].items() if z in event["zones"]}
     overlays = write_overlays(
         out,
         overlay_ids,
         {r["id"]: r["frame_index"] for r in records.values()},
         aircraft,
         vehicles,
-        cfg["zones"],
+        event_zones,  # only the zones of the event being detected are drawn
         zone_name,
         tau,
         nose_right,
