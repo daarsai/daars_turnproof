@@ -243,13 +243,28 @@ def index(request: Request):
             cards.append(run_card(rid))
         except (OSError, KeyError, ValueError, json.JSONDecodeError):
             continue
-    sent_first = {"SENT": 0, "ACKNOWLEDGED": 1, "DISPUTED": 1, "RESOLVED": 2}
-    packets = sorted(
-        (c for c in cards if c["packet_id"]),
-        key=lambda c: sent_first.get(c["review"]["state"], 9),
-    )
+    # one card per clip: the newest run, with earlier runs of the same clip listed under it
+    groups: dict[str, list[dict]] = {}
+    for c in cards:
+        groups.setdefault(c["clip"], []).append(c)
+    clip_groups = [{"latest": v[0], "earlier": v[1:]} for v in groups.values()]
+    # the airline sees only what the handler has sent; ?preview=1 shows the rest for the demo
+    visible_states = {"SENT", "ACKNOWLEDGED", "DISPUTED", "RESOLVED"}
+    all_packets = [c for c in cards if c["packet_id"]]
+    sent = [c for c in all_packets if c["review"]["state"] in visible_states]
+    unsent = [c for c in all_packets if c["review"]["state"] not in visible_states]
+    preview = request.query_params.get("preview") == "1"
     return templates.TemplateResponse(
-        request, "index.html", ctx(request, runs=cards, packets=packets)
+        request,
+        "index.html",
+        ctx(
+            request,
+            runs=cards,
+            groups=clip_groups,
+            packets=sent + (unsent if preview else []),
+            unsent_count=len(unsent),
+            preview=preview,
+        ),
     )
 
 

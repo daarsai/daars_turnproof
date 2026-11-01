@@ -4,13 +4,14 @@
 {% set ts = s.time_sync %}
 {% set spark = s.spark or {} %}
 {% set rcc = spark.rule_claim_check or {} %}
+{% set claim = s.airline_claim or (packet.airline_claim if packet else none) %}
 
 <div class="crumbs"><a href="/">Runs</a> › {{ run_id }}</div>
 
 <section class="run-head">
   <div>
     <h1>{% if card.meta %}{{ card.meta.flight_number }} · {{ card.meta.airline }} · stand {{ card.meta.stand }}{% else %}{{ run_id }}{% endif %}</h1>
-    <div class="muted">run <span class="mono">{{ run_id }}</span> · clip <span class="mono">{{ card.clip }}</span> · camera view <b>{{ s.view }}</b> · hold zone used <b>{{ s.zone_used }}</b>
+    <div class="muted">run <span class="mono">{{ run_id }}</span> · clip <span class="mono">{{ card.clip }}</span> · camera view <b>{{ s.view or 'default' }}</b> · hold zone used <b>{{ s.zone_used }}</b>
       {% if ts.speed_factor %} · footage speed ×{{ ts.speed_factor }} ({{ ts.speed_factor_source }}){% endif %}</div>
   </div>
   <div class="chips">
@@ -52,7 +53,7 @@ so there is no <em>loading complete</em> moment to put against the airline's del
     <span class="chip good big">loading complete at {{ lcm.t_utc | fmt_t }}</span>
     <span>rule confidence <b>{{ '%.2f' % lcm.confidence }}</b></span>
     <span>· Muse Spark {% if rcc.agree is true %}<span class="chip good">agrees</span>{% elif rcc.agree is false %}<span class="chip bad">disagrees</span>{% else %}<span class="chip">not run</span>{% endif %}</span>
-    {% if s.proposed_claim %}<span>· airline claims <b>{{ (s.airline_claim or {}).minutes }} min</b>, video supports <b>{% if s.proposed_claim.minutes_supported_by_video is none %}n/a{% else %}{{ s.proposed_claim.minutes_supported_by_video }} min{% endif %}</b></span>{% endif %}
+    {% if s.proposed_claim and claim %}<span>· airline claims <b>{{ claim.minutes }} min</b>, video supports <b>{% if s.proposed_claim.minutes_supported_by_video is none %}n/a{% else %}{{ s.proposed_claim.minutes_supported_by_video }} min{% endif %}</b></span>{% endif %}
   </div>
   {% endif %}
 </section>
@@ -60,7 +61,7 @@ so there is no <em>loading complete</em> moment to put against the airline's del
 
 <div class="grid-2">
   <section class="card">
-    <h2>Footage <span class="muted small">redacted copy · {{ s.source.duration_s if s.source else '' }} s</span></h2>
+    <h2>Footage <span class="muted small">redacted copy{% if s.source %} · {{ s.source.duration_s }} s{% endif %}</span></h2>
     {% if has_video %}
     <video id="vid" controls preload="metadata" src="/files/{{ run_id }}/video"></video>
     {% else %}<div class="empty">video not kept for this run</div>{% endif %}
@@ -92,7 +93,6 @@ so there is no <em>loading complete</em> moment to put against the airline's del
     {% else %}<div class="empty small">No milestones.</div>{% endif %}
 
     <h3>Against the airline's claim</h3>
-    {% set claim = s.airline_claim or (packet.airline_claim if packet else none) %}
     {% set pc = s.proposed_claim %}
     <table class="kv">
       {% if claim %}<tr><th>Airline claims</th><td>delay code <b>{{ claim.delay_code }}</b>, <b>{{ claim.minutes }} min</b>{% if claim.claim_window_utc %} <span class="muted">({{ claim.claim_window_utc.start | fmt_t }}–{{ claim.claim_window_utc.end | fmt_t }})</span>{% endif %}</td></tr>{% endif %}
@@ -281,6 +281,7 @@ so there is no <em>loading complete</em> moment to put against the airline's del
   (occ.cycles[occ.zone] || []).forEach(c => {
     const e = c.end == null ? n : c.end;
     svg += `<rect x="${x(c.start)}" y="${top}" width="${x(e) - x(c.start)}" height="${base - top}" class="cyc"/>`;
+    svg += `<rect x="${x(c.start)}" y="${top - 12}" width="${x(e) - x(c.start)}" height="5" class="cycband"/>`;
   });
   const bw = Math.max(1, (occ.step / n) * W);
   occ.series.forEach(([f, ov]) => {

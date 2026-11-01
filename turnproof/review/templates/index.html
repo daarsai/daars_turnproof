@@ -21,7 +21,8 @@
 <div class="empty">No runs yet. In a terminal: <code>make demo CLIP=clips/clip1.mp4</code>, then refresh.</div>
 {% else %}
 <div class="cards">
-  {% for r in runs %}
+  {% for g in groups %}
+  {% set r = g.latest %}
   <a class="rcard" href="/runs/{{ r.run_id }}">
     <div class="rcard-img">
       {% if r.thumb %}<img src="{{ r.thumb }}" alt="{{ r.run_id }}" loading="lazy">{% else %}<div class="noimg">no frames kept</div>{% endif %}
@@ -48,6 +49,20 @@
         {% if r.packet_id %}<span class="mono tiny">{{ r.packet_id }}</span>{% endif %}
         <span class="mono tiny muted">{% if r.cost is not none %}${{ '%.3f' % r.cost }}{% endif %} · {{ r.created | short(16) }}</span>
       </div>
+      <div class="rcard-cta">Open run: pictures, timeline, decision, packet →</div>
+      {% if g.earlier %}
+      <div class="earlier">
+        <div class="muted small">Earlier run{{ 's' if g.earlier | length > 1 }} of this clip</div>
+        {% for e in g.earlier %}
+        <div class="earlier-row">
+          <span class="mono small">{{ e.run_id }}</span>
+          {% if e.spark_ok and e.spark_agree is false %}<span class="chip bad tiny">Spark disagreed</span>{% elif e.spark_ok and e.spark_agree %}<span class="chip good tiny">Spark agreed</span>{% endif %}
+          <span class="state">{{ e.review.state }}</span>
+          <span class="earlier-open" data-href="/runs/{{ e.run_id }}">open →</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
   </a>
   {% endfor %}
@@ -63,8 +78,14 @@
     run yourself, no account needed.</p>
   </div>
 </section>
+{% if unsent_count and not preview %}
+<div class="banner">{{ unsent_count }} packet{{ 's' if unsent_count > 1 }} exist{{ '' if unsent_count > 1 else 's' }} on the handler side but {{ 'have' if unsent_count > 1 else 'has' }} not been <b>sent</b> yet, so the airline cannot see {{ 'them' if unsent_count > 1 else 'it' }}.
+The handler sends a packet from the run page (Confirm → Send to airline). <a href="/?preview=1">Preview unsent packets anyway (demo)</a></div>
+{% elif preview %}
+<div class="banner">Demo preview: unsent packets are shown too. <a href="/">Back to the airline's real view</a></div>
+{% endif %}
 {% if not packets %}
-<div class="empty">No packets yet.</div>
+<div class="empty">No packets to review yet.</div>
 {% else %}
 <div class="cards">
   {% for r in packets %}
@@ -80,11 +101,19 @@
       <div class="rcard-ms"><div>video supports <b>{{ r.proposed.delay_code_family }}</b> · {% if r.proposed.minutes_supported_by_video is none %}<b>n/a</b>{% else %}<b>{{ r.proposed.minutes_supported_by_video }} min</b>{% endif %}</div>
       <div class="muted small">{{ r.proposed.basis }}</div></div>
       {% endif %}
-      <div class="rcard-foot"><span class="muted small">{% if r.review.state in ('UNDER_REVIEW','CONFIRMED','CANDIDATE') %}not yet sent by the handler{% else %}&nbsp;{% endif %}</span></div>
+      <div class="rcard-foot"><span class="muted small">{% if r.review.state in ('UNDER_REVIEW','CONFIRMED','CANDIDATE') %}not yet sent by the handler (preview)</span><span class="chip warn tiny">preview</span>{% else %}received {{ r.created | short(16) }}</span>{% endif %}</div>
+      <div class="rcard-cta">Open packet: key frames, hashes, verify →</div>
     </div>
   </a>
   {% endfor %}
 </div>
 {% endif %}
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.earlier-open').forEach(el => el.addEventListener('click', e => {
+  e.preventDefault(); e.stopPropagation(); window.location = el.dataset.href;
+}));
+</script>
 {% endblock %}

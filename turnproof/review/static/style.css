@@ -151,3 +151,9 @@ video { width: 100%; background: #000; border-radius: 4px; display: block; }
 .pair-title { font-weight: 650; color: var(--navy); font-size: 15px; }
 .verdict { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; font-size: 14.5px; }
 .grid-2.tight { gap: 24px; margin: 0; align-items: start; }
+.rcard-cta { margin-top: 10px; background: var(--navy); color: #fff; text-align: center; font-weight: 600; font-size: 14px; padding: 9px 12px; border-radius: 4px; }
+.rcard:hover .rcard-cta { background: var(--orange); }
+.tl .cycband { fill: var(--orange); }
+.earlier { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.earlier-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; font-size: 13px; }
+.earlier-open { color: var(--navy-2); text-decoration: underline; cursor: pointer; margin-left: auto; }
