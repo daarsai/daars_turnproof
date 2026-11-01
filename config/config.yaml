@@ -23,12 +23,16 @@ zones: &side_zones   # default = side preset
   aft_hold:     {x0: 0.62, x1: 0.95, y0: 0.45, y1: 0.95, pad_out: 0.35}
   forward_hold: {x0: 0.08, x1: 0.40, y0: 0.45, y1: 0.95, pad_out: 0.35}
 
-rules:                     # all durations in seconds of VIDEO (speed factor applies afterwards)
+rules:
   docked_overlap_tau: 0.30
-  docked_min_s: 3.0        # must stay in zone this long to count as docked
-  undocked_min_s: 3.0      # must stay out this long to count as departed
-  smooth_window_s: 1.0     # rolling median over the occupancy series
-  merge_gap_s: 4.0         # undocked gaps shorter than this are flicker, merged away
+  # Durations in REAL seconds; converted to video seconds with the clip's speed factor and
+  # clamped to [floor_video_s, cap_video_s]. Unknown speed factor = treated as real time.
+  docked_min_real_s: 60      # equipment must stay at the hold >= 1 min to count as docked
+  undocked_min_real_s: 60    # and stay away >= 1 min to count as departed
+  merge_gap_real_s: 120      # shorter absences are detection gaps, merged away
+  smooth_window_s: 1.0       # rolling median, in VIDEO seconds
+  floor_video_s: 2.0
+  cap_video_s: 12.0
   spark_confidence_floor: 0.70
 
 integrity:
@@ -40,19 +44,23 @@ integrity:
 # speed_factor: real seconds per video second. null = unknown -> packet is 'unsynced' (no minutes).
 # speed_factor_source: 'source_page' (stated by the publisher) or 'estimated' (by the operator).
 clips:
+  # speed factors below were measured with scripts/estimate_speed.py from vehicle motion in the
+  # SAM detections (assumed apron speed 4 m/s); accuracy roughly +/-50%.
   clip1:
     reference_start_utc: "2026-10-30T17:58:00Z"
-    speed_factor: 10.0
-    speed_factor_source: estimated
+    speed_factor: 6.0
+    speed_factor_source: estimated_from_vehicle_motion
     view: side
+    nose: right                 # nose points right in the frame -> hold zones mirrored
   clip2:
     reference_start_utc: "2026-10-30T19:10:00Z"
-    speed_factor: null          # time-lapse of unknown factor until the source page is checked
-    speed_factor_source: null
+    speed_factor: 9.0
+    speed_factor_source: estimated_from_vehicle_motion
     view: nose
     zones_enabled: [forward_hold]
   clip3:
-    reference_start_utc: null   # demonstrates unsynced
-    speed_factor: null
-    speed_factor_source: null
+    reference_start_utc: null   # demonstrates unsynced: no start time declared
+    speed_factor: 12.0
+    speed_factor_source: estimated_from_vehicle_motion
     view: side
+    nose: right

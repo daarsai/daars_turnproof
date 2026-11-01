@@ -73,15 +73,35 @@ def build(milestones: list[dict], handler_log: list[dict], claim: dict) -> list[
     return rows
 
 
-def proposed_claim(claim: dict, rows: list[dict], family: str) -> dict:
+def proposed_claim(
+    claim: dict,
+    rows: list[dict],
+    family: str,
+    *,
+    has_loading_complete: bool,
+    synced: bool,
+    spark_agrees: bool | None,
+) -> dict:
     lc = next((r for r in rows if r["milestone"] == "loading_complete"), None)
     supported = lc["video_supported_minutes"] if lc else None
-    if supported is None:
-        basis = "cannot be computed: clip unsynced or claim window missing"
+    if not has_loading_complete:
+        family, basis = (
+            "none",
+            "no loading_complete observed: equipment still at the hold when the clip ends",
+        )
+    elif spark_agrees is False:
+        family, basis = (
+            "none",
+            "keyframe review disagrees with the detected departure; operator decision required",
+        )
+    elif not synced:
+        basis = "clip unsynced: no real-world minutes can be computed"
+    elif supported is None:
+        basis = "claim window missing: minutes cannot be computed"
     elif supported == 0:
         basis = "loading_complete observed before the claimed delay window"
     else:
-        basis = f"{supported} min of the claimed window fall after loading_complete"
+        basis = f"{supported} min of the claimed window overlap loading in progress"
     return {
         "delay_code_family": family or "none",
         "minutes_supported_by_video": supported,  # None = cannot be computed

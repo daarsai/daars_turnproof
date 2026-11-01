@@ -18,6 +18,7 @@ class MilestoneHit:
     frame_index: int
     confidence: float
     present_at_clip_start: bool = False  # docked run began on the very first sample
+    departure_at_clip_end: bool = False  # clip ended before the full undocked threshold
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class Cycle:
     end: int | None  # None = still docked at clip end
     conf: float
     present_at_clip_start: bool
+    departure_at_clip_end: bool = False  # undocked run was cut short by the end of the clip
 
 
 def smooth(samples: list[tuple[int, float, float]], window: int) -> list[tuple[int, float, float]]:
@@ -42,7 +44,11 @@ def smooth(samples: list[tuple[int, float, float]], window: int) -> list[tuple[i
 
 
 def raw_cycles(
-    samples: list[tuple[int, float, float]], tau: float, min_docked: int, min_undocked: int
+    samples: list[tuple[int, float, float]],
+    tau: float,
+    min_docked: int,
+    min_undocked: int,
+    end_floor: int = 1,
 ) -> list[Cycle]:
     state = "UNDOCKED"
     run: list[tuple[int, float, float]] = []
@@ -66,7 +72,11 @@ def raw_cycles(
                 cycles.append(Cycle(start, run[0][0], _mean(docked_conf), start == first_idx))
                 state, run, docked_conf = "UNDOCKED", [], []
     if state == "DOCKED":
-        cycles.append(Cycle(start, None, _mean(docked_conf), start == first_idx))
+        if run and len(run) >= end_floor:
+            # Departure observed, but the clip ended before the full undocked threshold.
+            cycles.append(Cycle(start, run[0][0], _mean(docked_conf), start == first_idx, True))
+        else:
+            cycles.append(Cycle(start, None, _mean(docked_conf), start == first_idx))
     return cycles
 
 
@@ -91,10 +101,12 @@ def detect(
     min_undocked: int,
     smooth_window: int = 1,
     merge_gap: int = 0,
+    end_floor: int = 1,
 ) -> tuple[list[MilestoneHit], list[Cycle]]:
     """Return (milestones of the longest complete cycle, all cycles after merging)."""
     cycles = merge_gaps(
-        raw_cycles(smooth(samples, smooth_window), tau, min_docked, min_undocked), merge_gap
+        raw_cycles(smooth(samples, smooth_window), tau, min_docked, min_undocked, end_floor),
+        merge_gap,
     )
     complete = [c for c in cycles if c.end is not None]
     if complete:
@@ -107,7 +119,11 @@ def detect(
             MilestoneHit("loader_docked_start", best.start, best.conf, best.present_at_clip_start)
         )
         if best.end is not None:
-            hits.append(MilestoneHit("loading_complete", best.end, best.conf))
+            hits.append(
+                MilestoneHit(
+                    "loading_complete", best.end, best.conf, False, best.departure_at_clip_end
+                )
+            )
     return hits, cycles
 
 

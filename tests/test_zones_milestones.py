@@ -12,8 +12,8 @@ def test_zone_fractions_and_padding():
     assert z == (220, 150, 280, 250)  # pad_out 0.5 * h(100) extends below
 
 
-def test_nose_left_mirrors_x():
-    z = zone_from_aircraft((0, 0, 100, 100), CFG["aft_hold"], nose_left=True)
+def test_nose_right_mirrors_x():
+    z = zone_from_aircraft((0, 0, 100, 100), CFG["aft_hold"], nose_right=True)
     assert (round(z[0], 6), round(z[2], 6)) == (10, 40)
 
 

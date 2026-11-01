@@ -29,7 +29,7 @@ def occupancy_series(
     aircraft: dict[int, list[Det]],
     zones_cfg: dict,
     zone_name: str,
-    nose_left: bool = False,
+    nose_right: bool = False,
     aircraft_iou_reject: float = 0.5,
     step: int = 1,
 ) -> list[tuple[int, float, float]]:
@@ -42,7 +42,7 @@ def occupancy_series(
         if ab is None:
             series.append((frame, 0.0, 0.0))
             continue
-        zone = all_zones(ab, zones_cfg, nose_left)[zone_name]
+        zone = all_zones(ab, zones_cfg, nose_right)[zone_name]
         best_ov, best_c = 0.0, 0.0
         for d in vehicles[frame]:
             if iou(d.box, ab) >= aircraft_iou_reject:
@@ -52,6 +52,12 @@ def occupancy_series(
                 best_ov, best_c = ov, d.c or 0.0
         series.append((frame, best_ov, best_c))
     return series
+
+
+def _video_s(real_s: float, speed: float | None, floor: float, cap: float) -> float:
+    """Real-world seconds -> video seconds, clamped. Unknown speed: treat as real time."""
+    v = real_s / (speed or 1.0)
+    return max(floor, min(cap, v))
 
 
 def _frames(seconds: float, fps: float, step: int) -> int:
@@ -64,19 +70,22 @@ def milestones_for_zone(
     cfg: dict,
     zone_name: str,
     fps: float,
-    nose_left: bool = False,
+    nose_right: bool = False,
+    speed: float | None = None,
 ) -> tuple[list[MilestoneHit], list[Cycle]]:
     rules = cfg["rules"]
     logic_fps = float(cfg.get("sampling", {}).get("logic_fps", 2))
     step = max(1, round(fps / logic_fps))
-    series = occupancy_series(vehicles, aircraft, cfg["zones"], zone_name, nose_left, step=step)
+    floor, cap = rules.get("floor_video_s", 2.0), rules.get("cap_video_s", 12.0)
+    series = occupancy_series(vehicles, aircraft, cfg["zones"], zone_name, nose_right, step=step)
     return detect(
         series,
         rules["docked_overlap_tau"],
-        _frames(rules["docked_min_s"], fps, step),
-        _frames(rules["undocked_min_s"], fps, step),
+        _frames(_video_s(rules["docked_min_real_s"], speed, floor, cap), fps, step),
+        _frames(_video_s(rules["undocked_min_real_s"], speed, floor, cap), fps, step),
         smooth_window=_frames(rules.get("smooth_window_s", 1.0), fps, step) | 1,
-        merge_gap=_frames(rules.get("merge_gap_s", 4.0), fps, step),
+        merge_gap=_frames(_video_s(rules["merge_gap_real_s"], speed, floor, cap * 2), fps, step),
+        end_floor=_frames(floor, fps, step),
     )
 
 
@@ -85,14 +94,17 @@ def best_zone(
     aircraft: dict[int, list[Det]],
     cfg: dict,
     fps: float,
-    nose_left: bool = False,
+    nose_right: bool = False,
     zones_enabled: list[str] | None = None,
+    speed: float | None = None,
 ) -> tuple[str, list[MilestoneHit], dict[str, list[Cycle]]]:
     """Pick the hold zone with the longest complete docked->complete stay."""
     names = [z for z in cfg["zones"] if z.endswith("_hold")]
     if zones_enabled:
         names = [z for z in names if z in zones_enabled]
-    results = {z: milestones_for_zone(vehicles, aircraft, cfg, z, fps, nose_left) for z in names}
+    results = {
+        z: milestones_for_zone(vehicles, aircraft, cfg, z, fps, nose_right, speed) for z in names
+    }
     all_cycles = {z: r[1] for z, r in results.items()}
 
     def longest(z: str) -> int:

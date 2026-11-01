@@ -102,7 +102,9 @@ def test_packet_sign_verify_and_tamper(tmp_path, monkeypatch):
         milestones, [{"milestone": "loading_complete", "t_utc": "2026-10-30T18:04:00Z"}], claim
     )
     assert rows[1]["video_supported_minutes"] == 0 and rows[1]["delta_min"] == 9
-    proposed = discrepancy.proposed_claim(claim, rows, "32")
+    proposed = discrepancy.proposed_claim(
+        claim, rows, "32", has_loading_complete=True, synced=True, spark_agrees=True
+    )
     assert proposed["minutes_supported_by_video"] == 0
 
     ev = [

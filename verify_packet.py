@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Standalone verifier for a TurnProof evidence packet. Needs only Python 3.11+ and the
 `cryptography` package (pip install cryptography). No TurnProof code is imported, so the
 counterparty can run it on its own machine.

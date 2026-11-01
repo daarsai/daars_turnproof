@@ -89,7 +89,6 @@ def run(
     clip: Path,
     cfg: dict,
     run_id: str | None = None,
-    nose_left: bool = False,
     use_spark: bool = True,
 ) -> dict:
     t_start = time.time()
@@ -102,6 +101,7 @@ def run(
     speed = clip_cfg.get("speed_factor")
     speed_src = clip_cfg.get("speed_factor_source")
     synced = bool(ref_start) and speed is not None
+    nose_right = clip_cfg.get("nose", "left") == "right"
     scen = SCENARIOS / clip.stem
     clip_meta = json.loads((scen / "clip_meta.json").read_text())
     claim = discrepancy.load_claim(scen / "airline_claim.json")
@@ -141,10 +141,10 @@ def run(
     # 4. zones + milestones ---------------------------------------------------
     t = time.time()
     zone_name, hits, cycles = best_zone(
-        vehicles, aircraft, cfg, fps, nose_left, clip_cfg.get("zones_enabled")
+        vehicles, aircraft, cfg, fps, nose_right, clip_cfg.get("zones_enabled"), speed
     )
     ab0 = aircraft_box_for(0, aircraft)
-    zones0 = all_zones(ab0, cfg["zones"], nose_left) if ab0 else {}
+    zones0 = all_zones(ab0, cfg["zones"], nose_right) if ab0 else {}
     milestones: list[dict] = []
     for h in hits:
         rec = nearest(records, h.frame_index)
@@ -154,7 +154,8 @@ def run(
                 "t_utc": rec["t_utc"],
                 "frame_index": h.frame_index,
                 "method": "sam31_vehicle_zone_overlap"
-                + ("_present_at_clip_start" if h.present_at_clip_start else ""),
+                + ("_present_at_clip_start" if h.present_at_clip_start else "")
+                + ("_departure_at_clip_end" if h.departure_at_clip_end else ""),
                 "zone": zone_name,
                 "confidence": h.confidence,
                 "evidence_frames": [rec["id"]],
@@ -194,7 +195,7 @@ def run(
         paths = [out / "display" / f"{k['id']}.png" for k in kf]
         ab_after = aircraft_box_for(after_idx, aircraft)
         if ab_after:
-            zone_box = all_zones(ab_after, cfg["zones"], nose_left)[zone_name]
+            zone_box = all_zones(ab_after, cfg["zones"], nose_right)[zone_name]
             crop = zone_crop(paths[2], zone_box, out / "display" / f"{kf[2]['id']}_holdcrop.png")
             paths.append(crop)
             keyframe_ids.append(f"{kf[2]['id']}_holdcrop")
@@ -204,12 +205,19 @@ def run(
             "milestones": [{k: m[k] for k in ("name", "t_utc", "frame_index")} for m in milestones],
             "airline_claim": {k: claim[k] for k in ("delay_code", "minutes", "source")},
             "allowed_code_families": CODE_FAMILIES,
-            "keyframe_roles": [
-                "during loading",
-                "at loading_complete",
-                "3 s after loading_complete",
-                "zoomed crop of the hold area, 3 s after loading_complete",
-            ][: len(paths)],
+            "images": [
+                {"frame_id": fid, "shows": role}
+                for fid, role in zip(
+                    keyframe_ids,
+                    [
+                        "midway through the docked period",
+                        "the frame where the rule says the equipment departed",
+                        "three seconds of video later",
+                        "zoomed crop of the hold area, three seconds of video later",
+                    ],
+                    strict=False,
+                )
+            ],
         }
         spark_result = spark.evaluate(paths, keyframe_ids, context)
         timings["spark_s"] = round(time.time() - t, 2)
@@ -243,7 +251,10 @@ def run(
     rows = discrepancy.build(milestones, handler_log, claim)
     so = spark_result.get("out") or {}
     family = so.get("candidate_delay_code_family") or "none"
-    proposed = discrepancy.proposed_claim(claim, rows, family)
+    agrees = (so.get("rule_claim_check") or {}).get("agree") if so else None
+    proposed = discrepancy.proposed_claim(
+        claim, rows, family, has_loading_complete=bool(lc), synced=synced, spark_agrees=agrees
+    )
     by_id = {r["id"]: r for r in records.values()}
     ev_ids = sorted(
         {fid for m in milestones for fid in m["evidence_frames"]}
@@ -354,6 +365,7 @@ def run(
         "run_id": run_id,
         "status": status,
         "zone_used": zone_name,
+        "nose": "right" if nose_right else "left",
         "zones_frame0": zones0,
         "cycles": {
             z: [{"start": c.start, "end": c.end, "conf": c.conf} for c in cs]
@@ -382,12 +394,11 @@ def main(argv: list[str] | None = None) -> None:
     r = sub.add_parser("run", help="run the pipeline on a clip (scenarios/<clip>/ must exist)")
     r.add_argument("clip")
     r.add_argument("--run-id")
-    r.add_argument("--nose-left", action="store_true", help="aircraft nose points left in frame")
     r.add_argument("--no-spark", action="store_true", help="skip the Muse Spark keyframe check")
     a = ap.parse_args(argv)
     if a.cmd == "run":
         os.environ.setdefault("PYTHONUNBUFFERED", "1")
-        s = run(Path(a.clip), load_cfg(), a.run_id, a.nose_left, not a.no_spark)
+        s = run(Path(a.clip), load_cfg(), a.run_id, not a.no_spark)
         keys = (
             "run_id", "status", "zone_used", "cycles", "time_sync", "milestones", "spark",
             "observed_facts", "discrepancies", "proposed_claim", "packet", "packet_sha256",

@@ -8,10 +8,12 @@ CFG = {
     },
     "rules": {
         "docked_overlap_tau": 0.3,
-        "docked_min_s": 3,
-        "undocked_min_s": 3,
+        "docked_min_real_s": 3,
+        "undocked_min_real_s": 3,
+        "merge_gap_real_s": 0,
         "smooth_window_s": 0,
-        "merge_gap_s": 0,
+        "floor_video_s": 0,
+        "cap_video_s": 100,
     },
     "sampling": {"logic_fps": 1},
 }
@@ -43,9 +45,32 @@ def test_full_cycle_in_forward_hold():
         vehicles[f] = [det(f, inside)]
     for f in range(15, 22):
         vehicles[f] = [det(f, away)]
-    zone, hits, _cycles = best_zone(vehicles, aircraft, CFG, FPS, nose_left=False)
+    zone, hits, _cycles = best_zone(vehicles, aircraft, CFG, FPS, nose_right=False, speed=1.0)
     assert zone == "forward_hold"
     assert [(h.name, h.frame_index) for h in hits] == [
         ("loader_docked_start", 5),
         ("loading_complete", 15),
     ]
+
+
+def test_departure_at_clip_end_is_accepted_with_flag():
+    aircraft = {0: [det(0, AC)]}
+    inside = (480, 200, 600, 330)
+    away = (100, 420, 200, 500)
+    vehicles = {f: [det(f, inside)] for f in range(10)}
+    vehicles.update(
+        {f: [det(f, away)] for f in range(10, 12)}
+    )  # only 2 frames away, then clip ends
+    cfg = {**CFG, "rules": {**CFG["rules"], "undocked_min_real_s": 5, "floor_video_s": 2}}
+    _zone, hits, _c = best_zone(vehicles, aircraft, cfg, FPS, speed=1.0)
+    assert [h.name for h in hits] == ["loader_docked_start", "loading_complete"]
+    assert hits[1].departure_at_clip_end is True
+
+
+def test_real_seconds_scale_with_speed_factor():
+    from turnproof.events.candidates import _video_s
+
+    assert _video_s(60, 12.0, 2.0, 12.0) == 5.0  # 1 real minute = 5 s of 12x video
+    assert _video_s(60, 6.0, 2.0, 12.0) == 10.0
+    assert _video_s(60, None, 2.0, 12.0) == 12.0  # unknown speed: real time, capped
+    assert _video_s(60, 100.0, 2.0, 12.0) == 2.0  # floor

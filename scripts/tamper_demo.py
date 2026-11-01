@@ -28,7 +28,7 @@ def main(packet_path: Path) -> int:
     y, x = img.shape[0] // 2, img.shape[1] // 2
     img[y, x, 0] = (int(img[y, x, 0]) + 1) % 256  # one channel, one pixel
     cv2.imwrite(str(p), img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
-    print(f"changed one pixel in {p}\n")
+    print(f"changed one pixel in {p}\n", flush=True)
     cmd = [sys.executable, "verify_packet.py", str(packet_path), "--frames", str(tampered),
            "--log", str(run_dir / "eventlog.jsonl")]  # fmt: skip
     return subprocess.run(cmd, check=False).returncode
