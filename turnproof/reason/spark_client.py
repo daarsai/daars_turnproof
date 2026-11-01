@@ -34,6 +34,16 @@ class SparkClient:
 
     def evaluate(self, frames: list[Path], frame_ids: list[str], context: dict) -> dict:
         """Returns {"ok": bool, "out": SparkOut|None, "raw": str, "path": "A|B|failed", ...}."""
+        keep = [i for i, f in enumerate(frames) if Path(f).exists()]
+        if len(keep) != len(frames):  # a crop that could not be made: review the rest
+            frames = [frames[i] for i in keep]
+            frame_ids = [frame_ids[i] for i in keep]
+            context = {
+                **context,
+                "images": [im for im in context.get("images", []) if im["frame_id"] in frame_ids],
+            }
+        if not frames:
+            return {"ok": False, "out": None, "raw": "", "path": "failed", "error": "no keyframes"}
         key = self._cache_key(frames, context)
         hit = self.cache_dir / f"{key}.json"
         if hit.exists():
