@@ -17,7 +17,7 @@ from pathlib import Path
 import cv2
 import yaml
 
-from turnproof.events.candidates import aircraft_box_for, best_zone
+from turnproof.events.candidates import aircraft_box_for, best_zone, occupancy_series
 from turnproof.events.eventlog import EventLog
 from turnproof.evidence import discrepancy
 from turnproof.evidence import packet as packet_mod
@@ -28,6 +28,7 @@ from turnproof.ingest.redact import redact_display_frames
 from turnproof.perception.sam_client import SamClient
 from turnproof.perception.sam_parse import parse
 from turnproof.reason.spark_client import SparkClient
+from turnproof.review.overlay import write_occupancy, write_overlays
 from turnproof.zones.aircraft_zones import all_zones
 
 DATA = Path("data")
@@ -272,6 +273,39 @@ def run(
         }
         for fid in ev_ids
     ]
+
+    # 6b. console artefacts: overlays (boxes drawn on COPIES of display frames) + occupancy ----
+    t = time.time()
+    tau = cfg["rules"]["docked_overlap_tau"]
+    step = max(1, round(fps / float(cfg.get("sampling", {}).get("logic_fps", 2))))
+    # a few extra context frames so the console can show the whole story, not only milestones
+    n = max(records) + 1
+    context_ids = [nearest(records, i)["id"] for i in (0, n // 4, n // 2, (3 * n) // 4, n - 1)]
+    overlay_ids = sorted(set(ev_ids) | set(context_ids))
+    overlays = write_overlays(
+        out,
+        overlay_ids,
+        {r["id"]: r["frame_index"] for r in records.values()},
+        aircraft,
+        vehicles,
+        cfg["zones"],
+        zone_name,
+        tau,
+        nose_right,
+    )
+    write_occupancy(
+        out,
+        zone_name,
+        occupancy_series(vehicles, aircraft, cfg["zones"], zone_name, nose_right, step=step),
+        cycles,
+        hits,
+        fps=fps,
+        step=step,
+        tau=tau,
+        n_frames=len(records),
+        speed=speed,
+    )
+    timings["overlays_s"] = round(time.time() - t, 2)
     time_sync = {
         "status": "declared" if synced else "unsynced",
         "reference_start_utc": ref_start,
@@ -378,7 +412,16 @@ def run(
         "discrepancies": rows,
         "proposed_claim": proposed,
         "packet": str(packet_path) if packet_path else None,
+        "packet_id": packet["packet_id"] if packet else None,
         "packet_sha256": packet["packet_sha256"] if packet else None,
+        "clip": str(clip),
+        "clip_meta": clip_meta,
+        "airline_claim": claim,
+        "handler_log": handler_log,
+        "evidence_frames": evidence_frames,
+        "overlays": overlays,
+        "keyframe_ids": keyframe_ids,
+        "source": {"file_sha256": info.sha256, "fps": fps, "duration_s": round(info.duration_s, 2)},
         "metrics": metrics,
         "created_at_utc": now(),
     }
@@ -395,7 +438,15 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("clip")
     r.add_argument("--run-id")
     r.add_argument("--no-spark", action="store_true", help="skip the Muse Spark keyframe check")
+    rp = sub.add_parser(
+        "replay", help="re-run the clip of an existing run (API responses come from the cache)"
+    )
+    rp.add_argument("run_id")
     a = ap.parse_args(argv)
+    if a.cmd == "replay":
+        prev = json.loads((DATA / "runs" / a.run_id / "run_metrics.json").read_text())
+        a.clip, a.run_id, a.no_spark = prev["clip"], None, False
+        a.cmd = "run"
     if a.cmd == "run":
         os.environ.setdefault("PYTHONUNBUFFERED", "1")
         s = run(Path(a.clip), load_cfg(), a.run_id, not a.no_spark)
@@ -408,6 +459,7 @@ def main(argv: list[str] | None = None) -> None:
         show["est_cost_usd"] = s["metrics"]["est_cost_usd"]
         print(json.dumps(show, indent=1))
         print(f"run folder: data/runs/{s['run_id']}")
+        print(f"console:    make serve  ->  http://localhost:8080/runs/{s['run_id']}")
         if s["packet"]:
             print(
                 f"verify:  python verify_packet.py {s['packet']} --frames data/runs/{s['run_id']}/display"

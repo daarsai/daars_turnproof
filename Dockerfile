@@ -4,8 +4,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libgl1 l
 WORKDIR /app
 COPY pyproject.toml ./
 COPY turnproof ./turnproof
-COPY verify_packet.py scripts ./
+COPY verify_packet.py ./
+COPY scripts ./scripts
 COPY config ./config
+COPY scenarios ./scenarios
 RUN pip install --no-cache-dir -e .
 EXPOSE 8080
 CMD ["uvicorn", "turnproof.review.app:app", "--host", "0.0.0.0", "--port", "8080"]

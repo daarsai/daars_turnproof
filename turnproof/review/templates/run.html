@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}{{ run_id }}{% endblock %}
+{% block content %}
+{% set ts = s.time_sync %}
+{% set spark = s.spark or {} %}
+{% set rcc = spark.rule_claim_check or {} %}
+
+<div class="crumbs"><a href="/">Runs</a> › {{ run_id }}</div>
+
+<section class="run-head">
+  <div>
+    <h1>{% if card.meta %}{{ card.meta.flight_number }} · {{ card.meta.airline }} · stand {{ card.meta.stand }}{% else %}{{ run_id }}{% endif %}</h1>
+    <div class="muted">run <span class="mono">{{ run_id }}</span> · clip <span class="mono">{{ card.clip }}</span> · camera view <b>{{ s.view }}</b> · hold zone used <b>{{ s.zone_used }}</b>
+      {% if ts.speed_factor %} · footage speed ×{{ ts.speed_factor }} ({{ ts.speed_factor_source }}){% endif %}</div>
+  </div>
+  <div class="chips">
+    {% if s.status == 'candidate' %}<span class="chip good big">candidate event found</span>
+    {% elif s.status == 'candidate_unsynced' %}<span class="chip warn big">candidate · unsynced</span>
+    {% else %}<span class="chip big">no candidate</span>{% endif %}
+    <span class="state big s-{{ review.state }}">{{ review.state }}</span>
+  </div>
+</section>
+
+{% if ts.status != 'declared' %}
+<div class="banner warn"><b>Unsynced clip.</b> No start time or speed factor was declared for this footage, so milestones have
+frame numbers but no real-world clock time, and no minutes can be computed. The packet says so.</div>
+{% endif %}
+{% if s.status == 'no_candidate' %}
+<div class="banner"><b>Nothing to claim from this clip.</b> Loading equipment was at the hold when the clip started and never left,
+so there is no <em>loading complete</em> moment to put against the airline's delay window. This is the correct outcome, not a failure.</div>
+{% endif %}
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Footage <span class="muted small">redacted copy · {{ s.source.duration_s if s.source else '' }} s</span></h2>
+    {% if has_video %}
+    <video id="vid" controls preload="metadata" src="/files/{{ run_id }}/video"></video>
+    {% else %}<div class="empty">video not kept for this run</div>{% endif %}
+    <h3>Hold-zone occupancy <span class="muted small">share of any vehicle box inside <b>{{ s.zone_used }}</b>, sampled at {{ (occupancy.fps / occupancy.step) | round(1) if occupancy else '' }}/s</span></h3>
+    {% if occupancy %}
+    <div id="timeline" class="timeline"></div>
+    <div class="legend"><span><i class="sw green"></i>equipment in zone (≥ τ {{ occupancy.tau }})</span><span><i class="sw grey"></i>below τ</span><span><i class="sw orange"></i>docked period used</span><span><i class="sw navy"></i>milestone</span><span class="muted">click the strip to seek the video</span></div>
+    {% else %}
+    <div class="empty small">No occupancy series stored for this run (older run). Re-run the clip with <code>make demo</code> to get the timeline.</div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>What the video shows</h2>
+    {% if s.milestones %}
+    <ol class="milestones">
+      {% for m in s.milestones %}
+      <li>
+        <div class="ms-name">{{ m.name }}</div>
+        <div class="ms-time mono">{{ m.t_utc | fmt_t }} <span class="muted">frame {{ m.frame_index }}</span></div>
+        <div class="muted small">{{ 'SAM 3.1 vehicle-in-zone rule' if m.method.startswith('sam31') else 'Muse Spark keyframe' }} · confidence {{ '%.2f' % m.confidence }}
+          {% if 'present_at_clip_start' in m.method %}· <span class="warn-text">already present at clip start (upper bound)</span>{% endif %}
+          {% if 'cut_short' in m.method %}· <span class="warn-text">departure cut short by clip end</span>{% endif %}
+          {% if m.frame_index is not none %}· <a href="#" class="seek" data-frame="{{ m.frame_index }}">show</a>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<div class="empty small">No milestones.</div>{% endif %}
+
+    <h3>Against the airline's claim</h3>
+    {% set claim = s.airline_claim or (packet.airline_claim if packet else none) %}
+    {% set pc = s.proposed_claim %}
+    <table class="kv">
+      {% if claim %}<tr><th>Airline claims</th><td>delay code <b>{{ claim.delay_code }}</b>, <b>{{ claim.minutes }} min</b>{% if claim.claim_window_utc %} <span class="muted">({{ claim.claim_window_utc.start | fmt_t }}–{{ claim.claim_window_utc.end | fmt_t }})</span>{% endif %}</td></tr>{% endif %}
+      {% if pc %}
+      <tr><th>Video supports</th><td>code family <b>{{ pc.delay_code_family }}</b> · {% if pc.minutes_supported_by_video is none %}<b>n/a</b>{% else %}<b>{{ pc.minutes_supported_by_video }} min</b>{% endif %}</td></tr>
+      <tr><th>Basis</th><td>{{ pc.basis }}</td></tr>
+      {% endif %}
+    </table>
+
+    <h3>Your decision <span class="muted small">{{ 'ground handler' if role == 'handler' else 'airline reviewer' }}</span></h3>
+    {% if actions %}
+    <form method="post" action="/runs/{{ run_id }}/action" class="decide">
+      <textarea name="note" rows="2" placeholder="Note (required to reject / correct / dispute; required to confirm when flagged or confidence < 0.70)"></textarea>
+      <div class="btns">
+        {% for a in actions %}
+        <button class="btn {{ 'primary' if a in ('confirm','send','acknowledge') else ('danger' if a in ('reject','dispute') else '') }}" name="action" value="{{ a }}">{{ a | capitalize }}{% if a == 'send' %} to airline{% endif %}</button>
+        {% endfor %}
+      </div>
+      {% if 'confirm' in actions and (review.requires_operator_review or review.spark_confidence < review.confidence_floor) %}
+      <div class="muted small">Flagged for operator review{% if review.spark_confidence < review.confidence_floor %} (Spark confidence {{ '%.2f' % review.spark_confidence }} below {{ review.confidence_floor }}){% endif %} — confirming needs a note.</div>
+      {% endif %}
+    </form>
+    {% else %}
+    <div class="muted small">
+      {% if review.state == 'OBSERVED' %}Nothing to decide: no candidate event.
+      {% elif review.state == 'CANDIDATE' %}Waiting for the Muse Spark keyframe check (run without <code>--no-spark</code>).
+      {% elif role == 'airline' and review.state in ('UNDER_REVIEW','CONFIRMED') %}The handler has not sent this packet yet.
+      {% elif review.state == 'SENT' %}Sent. Waiting for the airline reviewer{% if packet %} — <a href="/packets/{{ packet.packet_id }}">open the packet view</a>{% endif %}.
+      {% else %}No action available for your role in state {{ review.state }}.{% endif %}
+    </div>
+    {% endif %}
+    {% if review.history %}
+    <ul class="history">{% for h in review.history %}<li><span class="mono small">{{ h.t_utc | fmt_t if h.t_utc else '' }}</span> <b>{{ h.actor }}</b> {{ h.action }} → {{ h.to }}{% if h.note %} — <i>{{ h.note }}</i>{% endif %}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if packet %}<div class="small">Packet <a class="mono" href="/packets/{{ packet.packet_id }}">{{ packet.packet_id }}</a> · sha256 <span class="mono">{{ packet.packet_sha256 | short(16) }}…</span> · signed {{ packet.signature.alg }} ({{ packet.signature.key_id }})</div>{% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <h2>Evidence frames <span class="muted small">boxes drawn on redacted copies; the hashed frames are untouched</span></h2>
+  <div class="frames">
+    {% for e in evidence %}
+    <figure class="frame seek" data-frame="{{ e.frame_index }}">
+      <a href="{{ e.img }}" target="_blank" rel="noopener"><img src="{{ e.img }}" alt="{{ e.id }}" loading="lazy"></a>
+      <figcaption>
+        <div><b class="mono">{{ e.id }}</b> · {{ e.t_utc | fmt_t }} · frame {{ e.frame_index }}</div>
+        <div class="roles-line">{% for r in e.roles %}<span class="chip tiny">{{ r }}</span>{% endfor %}</div>
+        {% if e.sha256_redacted %}<div class="mono tiny muted">sha256 {{ e.sha256_redacted | short(20) }}…{% if e.redaction %} · {{ e.redaction | replace('_', ' ') }}{% endif %}</div>{% endif %}
+      </figcaption>
+    </figure>
+    {% endfor %}
+    {% for e in context %}
+    <figure class="frame ctx seek" data-frame="{{ e.frame_index }}">
+      <a href="{{ e.img }}" target="_blank" rel="noopener"><img src="{{ e.img }}" alt="{{ e.id }}" loading="lazy"></a>
+      <figcaption><div class="mono">{{ e.id }}</div><div class="muted tiny">context · {{ '%.1f' % e.t_s }} s into clip</div></figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  <div class="legend small"><span><i class="sw navy dashed"></i>aircraft (SAM 3.1 "aircraft")</span><span><i class="sw orange"></i>hold zone, fraction of the aircraft box</span><span><i class="sw green"></i>vehicle in zone (SAM 3.1 "vehicle")</span><span><i class="sw grey"></i>other vehicle</span></div>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Discrepancy table <span class="muted small">video vs handler log vs claim</span></h2>
+    <table class="disc">
+      <thead><tr><th>Milestone</th><th>Video</th><th>Handler log</th><th>Video − log</th><th>Note</th></tr></thead>
+      <tbody>
+      {% for r in s.discrepancies %}
+      <tr>
+        <td class="strong">{{ r.milestone }}</td>
+        <td class="mono">{{ r.video_utc | fmt_t }}</td>
+        <td class="mono">{{ r.handler_log_utc | fmt_t if r.handler_log_utc else '—' }}</td>
+        <td class="mono">{% if r.video_minus_log_min is not none %}{{ '%+.1f' % r.video_minus_log_min }} min{% else %}—{% endif %}</td>
+        <td class="small">{{ r.note or '' }}
+          {% if r.video_supported_minutes is not none %}<div>claimed <b>{{ r.airline_claim_minutes }}</b> min, video supports <b>{{ r.video_supported_minutes }}</b> min (Δ {{ r.delta_min }})</div>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">no milestones to compare</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if s.handler_log %}<div class="muted small">Handler log (synthetic): {% for h in s.handler_log %}<span class="mono">{{ h.milestone }} {{ h.t_utc | fmt_t }}</span>{{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Keyframe check <span class="muted small">Muse Spark 1.3 · flags, never decides</span></h2>
+    {% if spark.ok %}
+    <div class="spark-head">
+      {% if rcc.agree is true %}<span class="chip good big">agrees with the rule</span>
+      {% elif rcc.agree is false %}<span class="chip bad big">disagrees with the rule</span>
+      {% else %}<span class="chip big">reviewed</span>{% endif %}
+      <span class="muted">claim checked: <b>{{ rcc.claim }}</b> · confidence <b>{{ '%.2f' % (spark.confidence or 0) }}</b> · hold door <b>{{ spark.hold_door_state }}</b>
+        {% if spark.requires_operator_review %}· <span class="warn-text">operator review required</span>{% endif %}</span>
+    </div>
+    {% if rcc.reason %}<p class="reason">“{{ rcc.reason }}”</p>{% endif %}
+    <ul class="facts">
+      {% for f in s.observed_facts %}<li>{{ f.text }} <span class="muted mono tiny">{{ f.frames | join(', ') }}</span></li>{% endfor %}
+    </ul>
+    <div class="muted tiny">prompt {{ spark.prompt_version }} · output path {{ spark.path }} · reasoning effort {{ spark.reasoning_effort }} · structured JSON (strict schema)</div>
+    {% else %}
+    <div class="empty small">Spark check not run for this clip{% if s.status == 'no_candidate' %} (no candidate to check){% endif %}.</div>
+    {% endif %}
+  </section>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Models and cost <span class="muted small">this run</span></h2>
+    {% set m = s.metrics or metrics %}
+    <table class="kv">
+      <tr><th>SAM 3.1</th><td>concepts <span class="mono">aircraft, vehicle, person</span> · {{ m.sam_requests }} video calls ({{ m.sam_requests_live }} live, rest cached) · {{ m.frames_processed }} frames</td></tr>
+      <tr><th>Muse Spark 1.3</th><td>{{ m.spark_calls }} call(s) · {{ m.spark_tokens_in }} tokens in / {{ m.spark_tokens_out }} out</td></tr>
+      <tr><th>Estimated cost</th><td><b>${{ '%.4f' % m.est_cost_usd }}</b> for this run (cached calls are free)</td></tr>
+      <tr><th>Latency</th><td class="mono small">{% for k, v in m.latency_s.items() %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+      <tr><th>Time sync</th><td class="small">{{ ts.method }}</td></tr>
+    </table>
+  </section>
+  <section class="card">
+    <h2>Event log <span class="muted small">append-only, hash-chained</span></h2>
+    <table class="events">
+      <tbody>
+      {% for ev in events %}
+      <tr><td class="mono tiny">{{ ev.seq }}</td><td class="mono small">{{ ev.t_utc | fmt_t }}</td><td><b>{{ ev.actor }}</b></td><td>{{ ev.action }}</td><td class="muted small">{% if ev.from_state %}{{ ev.from_state }} → {{ ev.to_state }}{% endif %}</td><td class="mono tiny muted">{{ ev.hash | short(10) }}…</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if occupancy %}<script type="application/json" id="occ">{{ occupancy | tojson }}</script>{% endif %}
+<script>
+(function () {
+  const vid = document.getElementById('vid');
+  const FPS = {{ ((s.source.fps if s.source else none) or 24) | tojson }};
+  function seek(frame) { if (vid) { vid.currentTime = frame / FPS; vid.pause(); vid.scrollIntoView({behavior: 'smooth', block: 'nearest'}); } }
+  document.querySelectorAll('.seek').forEach(el => el.addEventListener('click', e => {
+    if (e.target.closest('a[target=_blank]')) return;
+    e.preventDefault(); seek(parseFloat(el.dataset.frame));
+  }));
+  const node = document.getElementById('occ');
+  if (!node) return;
+  const occ = JSON.parse(node.textContent);
+  const box = document.getElementById('timeline');
+  const W = Math.max(600, box.clientWidth || 1000), H = 130, top = 14, base = 100;
+  const n = Math.max(1, occ.n_frames);
+  const x = f => (f / n) * W;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="tl">`;
+  (occ.cycles[occ.zone] || []).forEach(c => {
+    const e = c.end == null ? n : c.end;
+    svg += `<rect x="${x(c.start)}" y="${top}" width="${x(e) - x(c.start)}" height="${base - top}" class="cyc"/>`;
+  });
+  const bw = Math.max(1, (occ.step / n) * W);
+  occ.series.forEach(([f, ov]) => {
+    const h = ov * (base - top);
+    svg += `<rect x="${x(f)}" y="${base - h}" width="${bw}" height="${h}" class="${ov >= occ.tau ? 'in' : 'out'}"/>`;
+  });
+  const ty = base - occ.tau * (base - top);
+  svg += `<line x1="0" x2="${W}" y1="${ty}" y2="${ty}" class="tau"/>`;
+  occ.hits.forEach(h => {
+    svg += `<line x1="${x(h.frame_index)}" x2="${x(h.frame_index)}" y1="${top - 8}" y2="${base}" class="ms"/>`;
+    svg += `<text x="${x(h.frame_index) + 6}" y="${top + 2}" class="mslbl">${h.name.replace(/_/g, ' ')}</text>`;
+  });
+  svg += `<line id="playhead" x1="0" x2="0" y1="${top - 10}" y2="${base + 4}" class="ph"/>`;
+  // x axis in clip seconds
+  const dur = n / occ.fps;
+  for (let s = 0; s <= dur; s += dur > 60 ? 10 : 5) {
+    const xx = (s * occ.fps / n) * W;
+    svg += `<text x="${xx}" y="${H - 6}" class="ax">${s}s</text>`;
+  }
+  svg += '</svg>';
+  box.innerHTML = svg;
+  box.addEventListener('click', ev => {
+    const r = box.getBoundingClientRect();
+    seek(((ev.clientX - r.left) / r.width) * n);
+  });
+  if (vid) vid.addEventListener('timeupdate', () => {
+    const ph = document.getElementById('playhead');
+    const xx = x(vid.currentTime * occ.fps);
+    ph.setAttribute('x1', xx); ph.setAttribute('x2', xx);
+  });
+})();
+</script>
+{% endblock %}

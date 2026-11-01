@@ -37,11 +37,11 @@ smoke-asr:         # make smoke-asr WAV=fixtures/note.wav
 demo:              # make demo CLIP=clips/clip1
 	$(PY) -m turnproof.cli run $(CLIP)
 
-replay:            # make replay RUN=<run_id>
+replay:            # make replay RUN=<run_id>   re-run that run's clip from the cache (no API spend)
 	$(PY) -m turnproof.cli replay $(RUN)
 
-serve:
-	uvicorn turnproof.review.app:app --host 0.0.0.0 --port 8080 --reload
+serve:             # review console -> http://localhost:8080
+	$(VENV_PY) -m uvicorn turnproof.review.app:app --host 127.0.0.1 --port 8080
 
 verify:            # make verify PACKET=data/runs/<run>/packets/<id>.json
 	$(PY) verify_packet.py $(PACKET)
