@@ -1,4 +1,4 @@
-.PHONY: setup keys test lint smoke-sam smoke-spark smoke-asr frames serve demo replay verify tamper metrics
+.PHONY: setup keys test lint smoke-sam smoke-spark smoke-asr frames serve demo replay verify tamper metrics archive
 
 # SYS_PY is used once, to create the venv; everything else runs inside the venv.
 SYS_PY ?= python3
@@ -53,3 +53,6 @@ tamper:            # make tamper PACKET=...
 
 metrics:           # make metrics RUN=<run_id>
 	cat data/runs/$(RUN)/run_metrics.json
+
+archive:           # make archive RUN=<run_id>   hide an old run from the console (moved to data/archive/)
+	mkdir -p data/archive && mv data/runs/$(RUN) data/archive/

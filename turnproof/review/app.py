@@ -243,7 +243,11 @@ def index(request: Request):
             cards.append(run_card(rid))
         except (OSError, KeyError, ValueError, json.JSONDecodeError):
             continue
-    packets = [c for c in cards if c["packet_id"]]
+    sent_first = {"SENT": 0, "ACKNOWLEDGED": 1, "DISPUTED": 1, "RESOLVED": 2}
+    packets = sorted(
+        (c for c in cards if c["packet_id"]),
+        key=lambda c: sent_first.get(c["review"]["state"], 9),
+    )
     return templates.TemplateResponse(
         request, "index.html", ctx(request, runs=cards, packets=packets)
     )

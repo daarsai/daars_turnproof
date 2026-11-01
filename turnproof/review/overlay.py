@@ -79,15 +79,14 @@ def draw_overlay(
     img = cv2.imread(str(display_png))
     if img is None:
         return None
+    # boxes first, labels last so no outline runs through a label
     if aircraft_box:
         _rect(img, aircraft_box, NAVY, 2, dashed=True)
-        _label(img, "aircraft  SAM 3.1", int(aircraft_box[0]), int(aircraft_box[1]) - 30, NAVY)
     for name, z in zones.items():
         active = name == active_zone
         if active:
             _fill(img, z, ORANGE, 0.14)
         _rect(img, z, ORANGE, 3 if active else 1, dashed=not active)
-        _label(img, f"hold zone  {name}", int(z[0]) + 4, int(z[1]) + 4, ORANGE, 0.58)
     n_in, best_c = 0, 0.0
     for d in vehicles:
         if aircraft_box and iou(d.box, aircraft_box) >= aircraft_iou_reject:
@@ -99,6 +98,10 @@ def draw_overlay(
             _rect(img, d.box, GREEN, 3)
         else:
             _rect(img, d.box, GREY, 1)
+    if aircraft_box:
+        _label(img, "aircraft  SAM 3.1", int(aircraft_box[0]), int(aircraft_box[1]) - 30, NAVY)
+    for name, z in zones.items():
+        _label(img, f"hold zone  {name}", int(z[0]) + 4, int(z[1]) + 4, ORANGE, 0.58)
     if active_zone in zones:
         z = zones[active_zone]
         if n_in:

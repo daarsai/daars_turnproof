@@ -103,9 +103,10 @@ def test_packet_sign_verify_and_tamper(tmp_path, monkeypatch):
     )
     assert rows[1]["video_supported_minutes"] == 0 and rows[1]["delta_min"] == 9
     proposed = discrepancy.proposed_claim(
-        claim, rows, "32", has_loading_complete=True, synced=True, spark_agrees=True
+        claim, rows, has_loading_complete=True, synced=True, spark_agrees=True
     )
     assert proposed["minutes_supported_by_video"] == 0
+    assert proposed["delay_code_family"] == "none"  # zero minutes -> no code named
 
     ev = [
         {
@@ -183,3 +184,33 @@ def test_supported_minutes_cases():
     assert f(claim, "2026-10-30T18:20:00Z") == 9  # loading ran through the whole window
     assert f(claim, None) is None  # unsynced clip
     assert f({}, "2026-10-30T18:08:00Z") is None  # no window declared
+
+
+def test_proposed_claim_family_comes_from_the_rule_not_from_spark():
+    claim = {
+        "delay_code": "32",
+        "minutes": 9,
+        "claim_window_utc": {"start": "2026-10-30T18:05:00Z", "end": "2026-10-30T18:14:00Z"},
+    }
+    ms = [
+        {"name": "loading_complete", "t_utc": "2026-10-30T18:08:00Z", "frame_index": 1,
+         "method": "sam31_vehicle_zone_overlap", "zone": "forward_hold", "confidence": 0.9,
+         "evidence_frames": ["f00001"]},
+    ]  # fmt: skip
+    rows = discrepancy.build(ms, [], claim)
+    kw = {"has_loading_complete": True, "synced": True}
+    # 3 of the claimed minutes overlap loading -> the airline's own code family, 3 min
+    p = discrepancy.proposed_claim(claim, rows, spark_agrees=True, **kw)
+    assert (p["delay_code_family"], p["minutes_supported_by_video"]) == ("32", 3)
+    # Spark disagreeing withholds both the family and the minutes
+    p = discrepancy.proposed_claim(claim, rows, spark_agrees=False, **kw)
+    assert (p["delay_code_family"], p["minutes_supported_by_video"]) == ("none", None)
+    # unsynced -> none / None
+    p = discrepancy.proposed_claim(
+        claim, rows, spark_agrees=True, has_loading_complete=True, synced=False
+    )
+    assert (p["delay_code_family"], p["minutes_supported_by_video"]) == ("none", None)
+    # a non-loading claimed code is never confirmed as a loading family
+    rows93 = discrepancy.build(ms, [], {**claim, "delay_code": "93"})
+    p = discrepancy.proposed_claim({**claim, "delay_code": "93"}, rows93, spark_agrees=True, **kw)
+    assert p["delay_code_family"] == "none" and p["minutes_supported_by_video"] == 3

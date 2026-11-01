@@ -251,10 +251,9 @@ def run(
     # 6. discrepancy + packet -------------------------------------------------
     rows = discrepancy.build(milestones, handler_log, claim)
     so = spark_result.get("out") or {}
-    family = so.get("candidate_delay_code_family") or "none"
     agrees = (so.get("rule_claim_check") or {}).get("agree") if so else None
     proposed = discrepancy.proposed_claim(
-        claim, rows, family, has_loading_complete=bool(lc), synced=synced, spark_agrees=agrees
+        claim, rows, has_loading_complete=bool(lc), synced=synced, spark_agrees=agrees
     )
     by_id = {r["id"]: r for r in records.values()}
     ev_ids = sorted(
@@ -335,6 +334,8 @@ def run(
             "hold_door_state": so.get("hold_door_state"),
             "requires_operator_review": so.get("requires_operator_review", True),
             "confidence": so.get("confidence"),
+            # a NOTE only: the packet's proposed_claim never reads this field
+            "suggested_delay_code_family": so.get("candidate_delay_code_family"),
         },
         "asr": None,
         "zones_config_sha256": sha256_hex(json.dumps(cfg["zones"], sort_keys=True).encode()),

@@ -73,20 +73,28 @@ def build(milestones: list[dict], handler_log: list[dict], claim: dict) -> list[
     return rows
 
 
+LOADING_FAMILIES = {"31", "32", "33", "34", "35", "36", "37", "38", "39"}
+
+
 def proposed_claim(
     claim: dict,
     rows: list[dict],
-    family: str,
     *,
     has_loading_complete: bool,
     synced: bool,
     spark_agrees: bool | None,
 ) -> dict:
+    """What the video can back, from the RULE alone. The delay-code family is the airline's own
+    claimed code, and only when the video supports more than zero minutes of its window; it is
+    never taken from a model answer. Spark's suggested family stays in models.spark as a note."""
     lc = next((r for r in rows if r["milestone"] == "loading_complete"), None)
     supported = lc["video_supported_minutes"] if lc else None
+    claimed = str(claim.get("delay_code", "")).strip()
+    family = claimed[:2] if claimed[:2] in LOADING_FAMILIES else "none"
     if not has_loading_complete:
-        family, basis = (
+        family, supported, basis = (
             "none",
+            None,
             "no loading_complete observed: equipment still at the hold when the clip ends",
         )
     elif spark_agrees is False:
@@ -96,15 +104,21 @@ def proposed_claim(
             "keyframe review disagrees with the detected departure; operator decision required",
         )
     elif not synced:
+        family, supported = "none", None
         basis = "clip unsynced: no real-world minutes can be computed"
     elif supported is None:
-        basis = "claim window missing: minutes cannot be computed"
+        family, basis = "none", "claim window missing: minutes cannot be computed"
     elif supported == 0:
-        basis = "loading_complete observed before the claimed delay window"
+        family, basis = "none", "loading_complete observed before the claimed delay window"
+    elif family == "none":
+        basis = (
+            f"{supported} min of the claimed window overlap loading in progress, but claimed code "
+            f"{claimed} is not a loading/handling code (31-39)"
+        )
     else:
         basis = f"{supported} min of the claimed window overlap loading in progress"
     return {
-        "delay_code_family": family or "none",
+        "delay_code_family": family,
         "minutes_supported_by_video": supported,  # None = cannot be computed
         "basis": basis,
     }

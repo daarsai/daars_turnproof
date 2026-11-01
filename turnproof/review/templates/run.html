@@ -191,6 +191,7 @@ so there is no <em>loading complete</em> moment to put against the airline's del
     <ul class="facts">
       {% for f in s.observed_facts %}<li>{{ f.text }} <span class="muted mono tiny">{{ f.frames | join(', ') }}</span></li>{% endfor %}
     </ul>
+    {% if spark.suggested_delay_code_family %}<div class="small muted">Spark's suggested code family: <b>{{ spark.suggested_delay_code_family }}</b> — recorded as a note only; the packet's proposed claim comes from the rule and the claim window, never from this field.</div>{% endif %}
     <div class="muted tiny">prompt {{ spark.prompt_version }} · output path {{ spark.path }} · reasoning effort {{ spark.reasoning_effort }} · structured JSON (strict schema)</div>
     {% else %}
     <div class="empty small">Spark check not run for this clip{% if s.status == 'no_candidate' %} (no candidate to check){% endif %}.</div>

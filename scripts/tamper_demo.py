@@ -7,6 +7,7 @@ Usage: python scripts/tamper_demo.py data/runs/<run_id>/packets/<packet>.json
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,8 @@ def main(packet_path: Path) -> int:
     print(f"changed one pixel in {p}\n", flush=True)
     cmd = [sys.executable, "verify_packet.py", str(packet_path), "--frames", str(tampered),
            "--log", str(run_dir / "eventlog.jsonl")]  # fmt: skip
+    if os.environ.get("TURNPROOF_PUBLIC_KEY"):
+        cmd += ["--pub", os.environ["TURNPROOF_PUBLIC_KEY"]]
     return subprocess.run(cmd, check=False).returncode
 
 
