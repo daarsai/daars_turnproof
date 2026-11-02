@@ -1,48 +1,85 @@
+{% import "_ui.html" as ui %}
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}TurnProof{% endblock %} · TurnProof console</title>
-<link rel="stylesheet" href="/static/style.css">
+<title>{% block title %}TurnProof{% endblock %} · TurnProof</title>
+{# ?v= changes the URL whenever style.css / app.js change, so browsers never mix new markup
+   with a cached older stylesheet (static files are served without Cache-Control). Bump it with them. #}
+<link rel="stylesheet" href="/static/style.css?v=3.1">
+<link rel="icon" href="/static/daars-logo.svg">
 </head>
 <body>
-<header class="top">
-  <div class="brand">
-    <a href="/" class="logo"><span class="mark"></span>TurnProof</a>
-    <span class="tag">turnaround evidence console</span>
-  </div>
-  <nav class="roles" aria-label="role">
-    <span class="roles-label">Viewing as</span>
-    <a class="role {% if role == 'handler' %}on{% endif %}" href="/role/handler?next={{ request.url.path }}">Ground handler</a>
-    <a class="role {% if role == 'airline' %}on{% endif %}" href="/role/airline?next={{ request.url.path }}">Airline reviewer</a>
-  </nav>
-</header>
-<nav class="flow" aria-label="workflow">
-  {% set path = request.url.path %}
+{% set path = request.url.path %}
+{% set shared = path.startswith('/packets/') or path.startswith('/verify') or path.startswith('/hooks') %}
+<div class="app">
+<aside class="sidebar">
+  <a href="/" class="brand"><span class="brand-mark">TP</span><span><span class="brand-name">TurnProof</span><span class="brand-sub">by DAARS Instruments</span></span></a>
   {% if role == 'handler' %}
-  <a class="{{ 'on' if path.startswith('/station') }}" href="/station"><b>1</b> Station<span class="muted">cameras · flights</span></a>
-  <a class="{{ 'on' if path.startswith('/intake') }}" href="/intake"><b>2</b> Claim intake<span class="muted">telex → Spark</span></a>
-  <a class="{{ 'on' if path.startswith('/upload') }}" href="/upload"><b>3</b> Upload<span class="muted">or capture at on-block</span></a>
-  <a class="{{ 'on' if path == '/' or path.startswith('/runs') }}" href="/"><b>4</b> Runs<span class="muted">review · confirm · send</span></a>
-  <a class="{{ 'on' if path.startswith('/hooks') }}" href="/hooks/inbox"><b>5</b> Delivery<span class="muted">webhook inbox</span></a>
-  <a class="{{ 'on' if path.startswith('/verify') }}" href="/verify"><b>6</b> Verify<span class="muted">anyone, no account</span></a>
+  <div class="nav-label">Ground handler</div>
+  <nav class="nav" aria-label="Ground handler workspace">
+    <a class="{{ 'on' if path == '/' }}" href="/">{{ ui.icon('overview') }}Overview</a>
+    <a class="{{ 'on' if path.startswith('/claims') or path.startswith('/intake') }}" href="/claims">{{ ui.icon('claims') }}Claims</a>
+    <a class="{{ 'on' if path.startswith('/review') or path.startswith('/runs') }}" href="/review">{{ ui.icon('review') }}Evidence Review</a>
+    <a class="{{ 'on' if path.startswith('/packets') or path.startswith('/hooks') or path.startswith('/verify') }}" href="/packets">{{ ui.icon('packets') }}Sent Packets</a>
+    <a class="{{ 'on' if path.startswith('/station') or path.startswith('/upload') }}" href="/station">{{ ui.icon('camera') }}Airport &amp; Cameras</a>
+  </nav>
   {% else %}
-  <a class="{{ 'on' if path == '/' or path.startswith('/packets') }}" href="/"><b>1</b> Packets<span class="muted">received from the handler</span></a>
-  <a class="{{ 'on' if path.startswith('/hooks') }}" href="/hooks/inbox"><b>2</b> Delivery<span class="muted">webhook inbox</span></a>
-  <a class="{{ 'on' if path.startswith('/verify') }}" href="/verify"><b>3</b> Verify<span class="muted">anyone, no account</span></a>
+  <div class="nav-label">Airline</div>
+  <nav class="nav" aria-label="Airline workspace">
+    <a class="{{ 'on' if path == '/' }}" href="/">{{ ui.icon('inbox') }}Received Cases</a>
+    <a class="{{ 'on' if path.startswith('/packets') }}" href="/packets">{{ ui.icon('review') }}Evidence Review</a>
+    <a class="{{ 'on' if path.startswith('/verify') }}" href="/verify">{{ ui.icon('shield') }}Verification</a>
+    <a class="{{ 'on' if path.startswith('/hooks') }}" href="/hooks/inbox">{{ ui.icon('reply') }}Case Responses</a>
+  </nav>
   {% endif %}
-</nav>
-<div class="label-bar">{{ data_label }} · flight, claim and log data are synthetic · persons blurred before display</div>
-{% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
-{% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
-<main>
-{% block content %}{% endblock %}
-</main>
-<footer>
-  <span>TurnProof v0.1 · Meta Global AI Developer Hackathon 2026 entry · models: SAM 3.1, Muse Spark 1.3</span>
-  <span><a href="/station">Station</a> · <a href="/hooks/inbox">Webhook inbox</a> · <a href="/verify">Verify a packet</a> · Humans decide. Models detect and flag.</span>
-</footer>
+  <div class="side-foot">
+    <details>
+      <summary>About this data ›</summary>
+      <p>Demonstration: claims, flights and logs are synthetic test data on licensed footage. Persons are blurred in every evidence frame before display and hashing.</p>
+      <p>Models: SAM 3.1 (detection), Muse Spark 1.3 (keyframe facts, claim extraction), Voice Transcribe (operator statements). Models detect and flag; people decide.</p>
+    </details>
+    <div class="made">TurnProof v0.1 · DAARS Instruments</div>
+  </div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <div class="crumb">{% block crumb %}<b>{{ self.title() }}</b>{% endblock %}</div>
+    <div class="top-right">
+      <span class="demo-tag" title="{{ data_label }}">Demo data</span>
+      {# No server authentication yet: the identity shown is a demo session, and the workspace
+         switch below is a development convenience, not access control. #}
+      <details class="acct" data-menu>
+        <summary aria-label="Demo session: {{ 'Ground Handler' if role == 'handler' else 'Airline' }} workspace. Open account menu">
+          <span class="avatar">{{ 'GH' if role == 'handler' else 'AL' }}</span>
+          <span class="who">Demo · <b>{{ 'Ground Handler' if role == 'handler' else 'Airline' }}</b></span>
+          <svg class="chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <div class="acct-menu">
+          <div class="am-h"><b>Demo session</b><div class="muted small">Demo organisation · {{ 'Ground Handler' if role == 'handler' else 'Airline' }}</div>
+            <div class="am-warn">Not signed in. Server authentication is not connected yet.</div></div>
+          <div class="am-label">Demo only · switch workspace</div>
+          <a class="{{ 'on' if role == 'handler' }}" href="/role/handler?next={{ path if shared else '/' }}">{{ ui.icon('user') }}Ground Handler workspace</a>
+          <a class="{{ 'on' if role == 'airline' }}" href="/role/airline?next={{ path if shared else '/' }}">{{ ui.icon('plane') }}Airline workspace</a>
+          <hr>
+          <a href="/login">{{ ui.icon('logout') }}Sign out</a>
+        </div>
+      </details>
+    </div>
+  </header>
+  {% if role == 'airline' and (path.startswith('/station') or path.startswith('/upload') or path.startswith('/intake') or path.startswith('/claims') or path.startswith('/review') or path.startswith('/runs')) %}
+  <div class="flash bad">This is a ground-handler page. It opens in the Airline workspace only because the demo has no server access control yet.</div>
+  {% endif %}
+  {% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
+  <main class="page">
+  {% block content %}{% endblock %}
+  </main>
+  <footer class="foot"><span>TurnProof · Aircraft Turnaround Evidence &amp; Resolution</span><span>Models detect and flag; people decide. Every decision is hash-chained and signed.</span></footer>
+</div>
+</div>
+<script src="/static/app.js?v=3.1" defer></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

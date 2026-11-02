@@ -138,8 +138,20 @@ def parse_mvt_locally(text: str) -> dict | None:
     shown next to Spark's answer as a cross-check: DLA/32/0009, DL32/0009, DL32/0009/41/0005."""
     import re
 
-    m = re.search(r"\bDLA?/?(\d{2})[A-Z]?/(\d{2})(\d{2})\b", text.upper())
+    up = text.upper()
+    m = re.search(r"\bDLA?/?(\d{2})[A-Z]?/(\d{2})(\d{2})\b", up)
     if not m:
         return None
     code, hh, mm = m.group(1), int(m.group(2)), int(m.group(3))
-    return {"delay_code": code, "minutes": hh * 60 + mm, "source_quote": m.group(0)}
+    out = {"delay_code": code, "minutes": hh * 60 + mm, "source_quote": m.group(0)}
+    # flight number ('XY123/30' or 'XY 123'), and STD / ATD times when the message states them
+    f = re.search(r"\b([A-Z]{2}\s?\d{3,4}[A-Z]?)/\d{2}", up) or re.search(
+        r"\b([A-Z]{2}\s?\d{3,4})\b", up
+    )
+    if f:
+        out["flight_number"] = f.group(1).replace(" ", "")
+    for key in ("STD", "ATD"):
+        t = re.search(rf"\b{key}\s*(\d{{2}}):?(\d{{2}})Z?\b", up)
+        if t:
+            out[key.lower()] = f"{t.group(1)}:{t.group(2)}"
+    return out

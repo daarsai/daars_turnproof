@@ -111,3 +111,17 @@ def record(url: str, seconds: float, out_path: Path) -> Path:
             return out_path
         err = (r.stderr or "ffmpeg failed").strip()[:400]
     raise RuntimeError(err)
+
+
+def snapshot(url: str, out_path: Path, timeout_s: int = 20) -> Path | None:
+    """One JPEG frame from the stream, so the operator can see what the camera sees."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    if url.startswith("rtsp"):
+        cmd += ["-rtsp_transport", "tcp"]
+    cmd += ["-i", url, "-frames:v", "1", "-q:v", "4", str(out_path)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    return out_path if r.returncode == 0 and out_path.exists() else None

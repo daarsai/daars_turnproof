@@ -1,0 +1,203 @@
+{# Shared building blocks. Import with: {% import "_ui.html" as ui %} #}
+
+{% macro icon(name) -%}
+{#- width/height keep the icon small even if the stylesheet is missing or stale; CSS may resize it #}
+<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{%- if name == 'overview' %}<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>
+{%- elif name == 'claims' %}<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>
+{%- elif name == 'review' %}<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M3 9h3M18 9h3"/>
+{%- elif name == 'packets' %}<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>
+{%- elif name == 'camera' %}<path d="M23 7l-7 5 7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+{%- elif name == 'inbox' %}<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>
+{%- elif name == 'shield' %}<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>
+{%- elif name == 'reply' %}<path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+{%- elif name == 'upload' %}<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>
+{%- elif name == 'plus' %}<path d="M12 5v14M5 12h14"/>
+{%- elif name == 'gear' %}<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+{%- elif name == 'plane' %}<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+{%- elif name == 'history' %}<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>
+{%- elif name == 'user' %}<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>
+{%- elif name == 'logout' %}<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>
+{%- elif name == 'link' %}<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+{%- endif %}</svg>
+{%- endmacro %}
+
+{% macro pill(tone, label, cls='') -%}
+<span class="pill {{ tone }} {{ cls }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro review_pill(state, cls='') -%}
+{% set r = review_label(state) %}<span class="pill {{ r.tone }} {{ cls }}" title="state {{ state }}">{{ r.label }}</span>
+{%- endmacro %}
+
+{% macro evidence_pill(es, cls='') -%}
+<span class="pill {{ es.tone }} {{ cls }}" title="{{ es.detail }}">{{ es.label }}</span>
+{%- endmacro %}
+
+{# result of claim vs video: not supported / partly / supported / cannot be determined #}
+{% macro outcome_pill(o, cls='') -%}
+<span class="pill {{ o.tone }} {{ cls }}" title="{{ o.label }}">{{ o.short }}</span>
+{%- endmacro %}
+
+{% macro outcome_box(o) -%}
+<div class="verdict-box {{ o.tone }} outcome"><b>{{ o.label }}</b>{{ o.text }}
+{% if o.money %}<div class="money"><span><small>Claimed</small>{{ o.money.currency }} {{ '{:,.0f}'.format(o.money.claimed) }}</span><span><small>Supported by video</small>{{ o.money.currency }} {{ '{:,.0f}'.format(o.money.supported) }}</span><span><small>Not supported</small>{{ o.money.currency }} {{ '{:,.0f}'.format(o.money.not_supported) }}</span></div>{% endif %}</div>
+{%- endmacro %}
+
+{% macro minutes(v, why) -%}
+{% if v is none %}<span class="na">{{ why or 'Not determined' }}</span>{% else %}{{ v }} min{% endif %}
+{%- endmacro %}
+
+{# three KPI tiles: claimed / video-supported / difference #}
+{% macro kpis(fig, claim, exposure=none, extra=none) -%}
+<div class="kpis{{ ' four' if extra }}">
+  <div class="kpi t-claim">
+    <div class="kpi-l">Claimed delay</div>
+    {% if fig.no_claim %}<div class="kpi-v na">No claim received</div><div class="kpi-s">Attach the airline's claim in New Claim</div>
+    {% else %}<div class="kpi-v">{{ fig.claimed }}<small>min</small></div>
+    <div class="kpi-s">Delay code {{ fig.code }}{% if fig.window %} · {{ fig.window[0] }}–{{ fig.window[1] }} UTC{% endif %}</div>{% endif %}
+  </div>
+  <div class="kpi {{ 't-video' if fig.supported is not none else 't-neutral' }}">
+    <div class="kpi-l">Video-supported delay</div>
+    {% if fig.supported is none %}<div class="kpi-v na">{{ fig.supported_why }}</div><div class="kpi-s">{{ fig.basis }}</div>
+    {% else %}<div class="kpi-v">{{ fig.supported }}<small>min</small></div><div class="kpi-s">{{ fig.basis }}</div>{% endif %}
+  </div>
+  <div class="kpi {{ 't-diff' if fig.difference is not none else 't-neutral' }}">
+    <div class="kpi-l">Difference to review</div>
+    {% if fig.difference is none %}<div class="kpi-v na">Not determined</div><div class="kpi-s">Needs a claim and video-supported minutes</div>
+    {% else %}<div class="kpi-v">{{ fig.difference }}<small>min</small></div>
+    <div class="kpi-s">{% if exposure %}{{ exposure.currency }} {{ '{:,.0f}'.format(exposure.amount) }} penalty exposure under review at {{ exposure.currency }} {{ '%g' % exposure.rate }}/min (synthetic contract rate) · not a realised saving{% else %}Claimed minutes not supported by video{% endif %}</div>{% endif %}
+  </div>
+  {% if extra %}{{ extra }}{% endif %}
+</div>
+{%- endmacro %}
+
+{# claim window vs video milestones vs handler log on one UTC axis #}
+{% macro claim_timeline(tl) -%}
+{% if tl %}
+<div class="tline" role="img" aria-label="Claim window compared with video and handler-log times">
+  <div class="axis"></div>
+  {% if tl.window %}<div class="win" style="left: {{ tl.window.x }}%; width: {{ tl.window.w }}%"></div>
+  <div class="win-l" style="left: {{ tl.window.x }}%">Claimed delay {{ tl.window.start }}–{{ tl.window.end }}</div>{% endif %}
+  {% for m in tl.marks %}
+  <div class="mk {{ m.kind }}" style="left: {{ m.x }}%" title="{{ 'Video' if m.kind == 'video' else 'Handler log' }}: {{ m.label }} {{ m.t }}"></div>
+  {% if m.kind == 'video' %}<div class="mk-l" style="left: {{ m.x }}%">{{ m.label }}<br>{{ m.t }}</div>
+  {% elif m.name == 'loading_complete' %}<div class="mk-l log" style="left: {{ m.x }}%">log: {{ m.t }}</div>{% endif %}
+  {% endfor %}
+  {% for t in tl.ticks %}<div class="tick" style="left: {{ t.x }}%">{{ t.t }}</div>{% endfor %}
+</div>
+<div class="tl-legend"><span><i class="v"></i>Video evidence</span><span><i class="l"></i>Handler log</span><span><i class="w"></i>Airline's claimed delay window</span></div>
+{% else %}
+<div class="banner warn">Times cannot be placed on a clock: this clip has no declared start time, so it cannot support or refute minutes in the claim window.</div>
+{% endif %}
+{%- endmacro %}
+
+{# Turnaround Timeline: lanes of stored records on one proportional axis (views.turnaround_chart).
+   Items with a mapped evidence frame are buttons: clicking one selects that frame in the viewer. #}
+{% macro turnaround_chart(ch, id='tchart') -%}
+{% if ch %}
+<div class="tc-wrap">
+<div class="tc tc-{{ ch.mode }}" id="{{ id }}" data-chart>
+  <div class="tc-row tc-head"><div class="tc-lbl"><span class="tc-mode">{{ 'UTC' if ch.mode == 'utc' else 'Clip time' }}</span></div>
+    <div class="tc-track">{% for t in ch.ticks %}<span class="tc-tick" style="left:{{ t.x }}%">{{ t.t }}</span>{% endfor %}</div></div>
+  {% for lane in ch.lanes %}
+  <div class="tc-row lane-{{ lane.key }}" style="--brows:{{ lane.brows }};--rows:{{ lane.rows }}">
+    <div class="tc-lbl"><b>{{ lane.label }}</b></div>
+    <div class="tc-track">
+      {% for t in ch.ticks %}<i class="tc-grid" style="left:{{ t.x }}%"></i>{% endfor %}
+      {% for it in lane.marks %}
+      {% set attrs %}data-tip="{{ it.tip }}" aria-label="{{ it.tip | replace('\n', ' · ') }}" {% if it.frame %}type="button" data-frame="{{ it.frame }}"{% else %}tabindex="0"{% endif %}{% endset %}
+      {% set tag = 'button' if it.frame else 'span' %}
+      {#- ~8px per % of track at 1280px wide; a label that would be cut off goes beside the bar #}
+      {% set out = it.kind == 'bar' and it.w * 8 < (it.label | length) * 6.6 + 16 %}
+      {% if it.kind == 'bar' %}<{{ tag }} class="tc-bar t-{{ it.tone }}{{ ' unc-l' if it.unc_l }}{{ ' unc-r' if it.unc_r }}{{ ' out' if out }}{{ ' out-l' if out and it.x + it.w > 78 }}" style="left:{{ it.x }}%;width:{{ it.w }}%;--row:{{ it.row }}" {{ attrs }}><span>{{ it.label }}</span></{{ tag }}>
+      {% elif it.kind == 'point' %}<{{ tag }} class="tc-pt t-{{ it.tone }}{{ ' unc' if it.unc_l }}{{ ' el' if it.x < 7 }}{{ ' er' if it.x > 92 }}" style="left:{{ it.x }}%;--row:{{ it.row }}" {{ attrs }}><i></i><span class="tc-pl">{{ it.label }}<b>{{ it.time | replace(' UTC', '') | replace(' into clip', '') }}</b></span></{{ tag }}>
+      {% else %}<{{ tag }} class="tc-tk t-{{ it.tone }}" style="left:{{ it.x }}%" {{ attrs }}></{{ tag }}>{% endif %}
+      {% endfor %}
+      {% if lane.empty and (not lane.marks or lane.key == 'review') %}<span class="tc-empty{{ ' right' if lane.marks }}">{{ lane.empty }}</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <div class="tc-cursor" hidden><span>Selected frame</span></div>
+</div>
+</div>
+<div class="tc-legend">
+  {% if ch.mode == 'utc' %}<span><i class="t-flight"></i>Flight feed</span>{% endif %}
+  <span><i class="t-coverage"></i>Footage coverage</span><span><i class="t-video"></i>Camera-observed (SAM 3.1)</span>
+  {% if ch.lanes | selectattr('profile') | list %}<span><i class="t-aircraft"></i>Aircraft on stand</span><span><i class="t-staff"></i>Ground staff</span><span><i class="t-probe"></i>Event zone · not yet validated</span>{% endif %}
+  {% if ch.mode == 'utc' %}<span><i class="t-log"></i>Handler log</span><span><i class="t-claim"></i>Airline claim</span>{% endif %}
+  <span><i class="unc"></i>Uncertain edge</span><span><i class="tk"></i>Evidence frame</span>
+  <span class="muted">{{ ch.span }} · hover for source, click to show the frame</span>
+</div>
+{% if ch.mode == 'clip' %}
+<div class="banner warn tc-note"><b>No clock time for this footage.</b> Events are shown in clip time and are not placed against the UTC records below.</div>
+{% if ch.outside %}<div class="outside">{% for o in ch.outside %}<span><b>{{ o.label }}</b> {{ o.t }} UTC <small>{{ o.source }}</small></span>{% endfor %}</div>{% endif %}
+{% endif %}
+{% else %}
+<div class="empty small">Not enough timed records to draw a turnaround timeline.</div>
+{% endif %}
+{%- endmacro %}
+
+{# Evidence viewer: one large frame, previous / next, a compact strip; frames from run_view(). #}
+{% macro frame_viewer(frames, first, chart_id='tchart', camera='', view='', video=none) -%}
+{% if frames %}{% set f0 = frames[first] %}
+<div class="viewer" data-viewer2 data-chart="{{ chart_id }}" tabindex="0" aria-label="Evidence frames: use the arrow keys">
+  <div class="media">
+    <a class="v-open" href="{{ f0.img }}" target="_blank" rel="noopener"><img class="main" src="{{ f0.img }}" alt="{{ f0.title }}"></a>
+    <div class="badge-tl"><span class="pill v-kind {{ 'info' if f0.kind == 'evidence' else '' }}">{{ 'Signed evidence frame' if f0.kind == 'evidence' else 'Context frame' }}</span>{% if f0.ai %}<span class="pill v-ai">AI keyframe</span>{% endif %}</div>
+    <button type="button" class="v-nav prev" aria-label="Previous frame">‹</button><button type="button" class="v-nav next" aria-label="Next frame">›</button>
+    <div class="cap"><div><div class="cap-title">{{ f0.title }}</div><div class="cap-meta">{{ (f0.t_utc | hm) ~ ' UTC' if f0.t_utc else 'no clock time' }} · {{ '%.1f' % f0.t_s }} s into clip · frame {{ f0.frame_index }}</div></div><div class="v-pos">{{ first + 1 }} / {{ frames | length }}</div></div>
+  </div>
+  <div class="v-active" data-active>{% for a in f0.active or [] %}<span class="pill {{ 'good' if a.validated else 'probe' }}">{{ a.label }}</span>{% endfor %}</div>
+  <div class="v-info">
+    <span>Event <b class="v-phase">{{ f0.phase or '—' }}</b></span>
+    <span>Camera <b>{{ camera or 'not recorded' }}</b></span>
+    <span>View <b>{{ (view or 'default') | replace('_', ' ') }}</b></span>
+    <span>Source <b class="v-src">{{ 'SAM 3.1 overlay · redacted frame' if f0.overlay else 'Redacted frame' }}</b></span>
+  </div>
+  <div class="strip" role="listbox" aria-label="Frames">
+    {% for f in frames %}
+    <button type="button" class="sf {{ 'on' if loop.index0 == first }} {{ 'ev' if f.kind == 'evidence' }}" data-i="{{ loop.index0 }}" role="option" title="{{ f.title }} · {{ (f.t_utc | hm) ~ ' UTC' if f.t_utc else ('%.1f' % f.t_s) ~ ' s' }}"><img src="{{ f.img }}" alt="" loading="lazy"><span>{{ (f.t_utc | hm) if f.t_utc else ('%.1f' % f.t_s) ~ ' s' }}</span></button>
+    {% endfor %}
+  </div>
+  <script type="application/json" class="v-data">{{ frames | tojson }}</script>
+</div>
+{% else %}
+<div class="preview-empty">No frames stored for this analysis.</div>
+{% endif %}
+{%- endmacro %}
+
+{# Case header: who, where, what is claimed, what the evidence supports, where review stands. #}
+{% macro case_header(meta, fig, ev_status, review_state, synced, extra='') -%}
+<div class="casebar">
+  <div class="cb-id"><span class="cb-flight">{{ meta.flight_number or 'Unknown flight' }}</span><span class="muted">{{ meta.airline }}</span></div>
+  <div class="cb-f"><span>Airport</span><b>{{ meta.station or '—' }}</b></div>
+  <div class="cb-f"><span>Stand</span><b>{{ meta.stand or '—' }}</b></div>
+  <div class="cb-f"><span>Claim code</span><b>{{ fig.code if not fig.no_claim else '—' }}</b></div>
+  <div class="cb-f"><span>Claimed</span><b>{{ (fig.claimed ~ ' min') if not fig.no_claim else 'No claim' }}</b></div>
+  <div class="cb-f"><span>Supported</span><b class="{{ 'ok' if fig.supported is not none else 'na' }}">{{ (fig.supported ~ ' min') if fig.supported is not none else fig.supported_why }}</b></div>
+  <div class="cb-f"><span>Time sync</span>{% if synced %}<span class="pill good">Synchronized</span>{% else %}<span class="pill warn">Not synchronized</span>{% endif %}</div>
+  <div class="cb-f"><span>Review</span>{{ review_pill(review_state) }}</div>
+  {{ extra }}
+</div>
+{%- endmacro %}
+
+{% macro assessment(fig, review_state, ev_status) -%}
+{% if review_state in ('ACKNOWLEDGED', 'RESOLVED') %}
+<div class="verdict-box good"><b>{{ review_label(review_state).label }}</b>The airline has responded to the signed packet.</div>
+{% elif review_state == 'DISPUTED' %}
+<div class="verdict-box bad"><b>Disputed by the airline</b>Resolve with a note once both sides agree.</div>
+{% elif review_state == 'SENT' %}
+<div class="verdict-box info"><b>Sent to the airline</b>Waiting for acknowledgement or dispute.</div>
+{% elif review_state == 'REJECTED' %}
+<div class="verdict-box neutral"><b>Rejected by the handler</b>This assessment will not be sent.</div>
+{% elif review_state == 'CONFIRMED' %}
+<div class="verdict-box good"><b>Confirmed by the handler</b>Ready to send as a signed evidence packet.</div>
+{% elif review_state == 'UNDER_REVIEW' %}
+<div class="verdict-box"><b>Requires human review</b>{% if fig.difference is not none %}The video supports {{ fig.supported }} of the {{ fig.claimed }} claimed minutes. Confirm, correct or reject before sending.{% else %}Check the evidence; minutes cannot be computed from this footage.{% endif %}</div>
+{% elif review_state == 'OBSERVED' %}
+<div class="verdict-box neutral"><b>{{ ev_status.label }}</b>No event to decide on in this footage. {{ ev_status.detail }}</div>
+{% else %}
+<div class="verdict-box neutral"><b>{{ review_label(review_state).label }}</b></div>
+{% endif %}
+{%- endmacro %}

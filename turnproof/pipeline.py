@@ -30,6 +30,7 @@ from turnproof.perception.sam_client import SamClient
 from turnproof.perception.sam_parse import parse
 from turnproof.reason.spark_client import SparkClient
 from turnproof.review.overlay import write_occupancy, write_overlays
+from turnproof.review.profile import build_profile, write_profile
 from turnproof.zones.aircraft_zones import all_zones
 
 DATA = Path("data")
@@ -361,6 +362,23 @@ def run(
         n_frames=len(records),
         speed=speed,
     )
+    write_profile(
+        out,
+        build_profile(
+            aircraft=aircraft,
+            vehicles=vehicles,
+            persons=persons,
+            cfg=cfg,
+            events=cfg.get("events") or {},
+            view_zones=cfg["zones"],
+            fps=fps,
+            n_frames=len(records),
+            speed=speed,
+            reference_start_utc=ref_start,
+            event_used=event_name,
+            zone_used=zone_name,
+        ),
+    )
     timings["overlays_s"] = round(time.time() - t, 2)
     time_sync = {
         "status": "declared" if synced else "unsynced",
@@ -519,7 +537,7 @@ def main(argv: list[str] | None = None) -> None:
         show["est_cost_usd"] = s["metrics"]["est_cost_usd"]
         print(json.dumps(show, indent=1))
         print(f"run folder: data/runs/{s['run_id']}")
-        print(f"console:    make serve  ->  http://localhost:8080/runs/{s['run_id']}")
+        print(f"console:    make serve  ->  http://localhost:8090/runs/{s['run_id']}")
         if s["packet"]:
             print(
                 f"verify:  python verify_packet.py {s['packet']} --frames data/runs/{s['run_id']}/display"

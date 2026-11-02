@@ -1,38 +1,44 @@
 {% extends "base.html" %}
-{% block title %}{{ run_id }}{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{% if st.state == 'failed' %}Analysis failed{% elif st.state == 'recording' %}Recording{% else %}Analysing{% endif %}{% endblock %}
+{% block crumb %}<a href="/review">Evidence Review</a> › <b>{{ self.title() }}</b>{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/">Runs</a> › {{ run_id }}</div>
-<section class="run-head">
-  <div>
-    <h1>{% if st.state == 'failed' %}Run failed{% elif st.state == 'recording' %}Recording {{ run_id }}{% else %}Processing {{ run_id }}{% endif %}</h1>
-    <div class="muted">clip <span class="mono">{{ st.clip }}</span> · started {{ st.started_at_utc }}
-      {% if st.clip_cfg %} · view <b>{{ st.clip_cfg.view }}</b> · speed ×{{ st.clip_cfg.speed_factor }} · start {{ st.clip_cfg.reference_start_utc or 'not declared (unsynced)' }}{% endif %}</div>
-  </div>
-  <div class="chips">
-    {% if st.state == 'failed' %}<span class="chip bad big">failed</span>{% else %}<span class="chip warn big">{{ st.state }}</span>{% endif %}
-  </div>
+<section class="ph">
+  <div><div class="eyebrow">Add Evidence</div>
+  <h1>{% if st.state == 'failed' %}Analysis failed{% elif st.state == 'recording' %}Recording from the stand camera{% else %}Analysing footage{% endif %}</h1>
+  <div class="sub">{{ st.clip }} · started {{ st.started_at_utc | day }} {{ st.started_at_utc | hm }} UTC
+    {% if st.clip_cfg %} · {{ (st.clip_cfg.view or '') | replace('_', ' ') }} view · ×{{ st.clip_cfg.speed_factor }} · {{ ('start ' ~ (st.clip_cfg.reference_start_utc | hm) ~ ' UTC') if st.clip_cfg.reference_start_utc else 'time not synchronized' }}{% endif %}</div></div>
+  <div class="ph-actions">{% if st.state == 'failed' %}<span class="pill bad big">Failed</span>{% else %}<span class="pill warn big">{{ st.state | capitalize }}</span>{% endif %}</div>
 </section>
 
+{% if st.capture %}<div class="banner">Capture for <b>{{ st.capture.flight_number }}</b> at stand {{ st.capture.stand }} · {{ st.capture.seconds }} s · start declared from the feed's on-block time {{ st.capture.on_block_utc | hm }} UTC</div>{% endif %}
+
 {% if st.state == 'failed' %}
-{% if st.capture %}<div class="banner">Capture for <b>{{ st.capture.flight_number }}</b> at stand {{ st.capture.stand }} from camera <span class="mono">{{ st.capture.camera_id }}</span> · {{ st.capture.seconds }} s · declared start = feed on-block {{ st.capture.on_block_utc }}</div>{% endif %}
-<div class="banner warn"><b>{{ st.error }}</b></div>
-<section class="card"><h2>Details</h2><pre class="term bad">{{ st.traceback }}</pre>
-<div class="muted small">Common causes: MODEL_API_KEY missing from <code>.env</code> (SAM and Spark calls need it unless cached), ffmpeg not installed, or a clip that is not a video. Fix and upload again; this folder can be hidden with <code>make archive RUN={{ run_id }}</code>.</div></section>
+<div class="banner bad"><b>{{ st.error }}</b></div>
+<details class="more" open><summary>Details</summary><div class="more-body"><pre class="term bad">{{ st.traceback }}</pre>
+<div class="muted small">Common causes: model API key missing (needed unless the footage was analysed before), ffmpeg not installed, or a file that is not a video. Fix and add the evidence again; this run can be hidden with <code>make archive RUN={{ run_id }}</code>.</div></div></details>
 {% else %}
-{% if st.capture %}<div class="banner">Capture for <b>{{ st.capture.flight_number }}</b> at stand {{ st.capture.stand }} from camera <span class="mono">{{ st.capture.camera_id }}</span> · {{ st.capture.seconds }} s · declared start = feed on-block {{ st.capture.on_block_utc }} · {{ st.capture.source }}</div>{% endif %}
-<section class="card hero-card">
-  <h2>Stages</h2>
-  {% set stages = ([('recording', 'Recording from the stand camera')] if st.capture else []) + [('ingest', 'Frames extracted, hashed and encrypted'), ('sam', 'SAM 3.1: aircraft, vehicles, persons'), ('redact', 'Persons blurred, redacted frames hashed'), ('rule', 'Hold-zone occupancy and milestones'), ('spark', 'Muse Spark keyframe check'), ('packet', 'Discrepancy table, overlays, signed packet')] %}
-  {% set cur = (st.stage or '').split(':')[0] %}
-  {% set names = stages | map(attribute=0) | list %}
-  {% set cur_i = names.index(cur) if cur in names else -1 %}
-  <ol class="stages">
-    {% for key, label in stages %}
-    <li class="{% if loop.index0 < cur_i %}done{% elif loop.index0 == cur_i %}now{% endif %}"><span class="n">{{ loop.index }}</span> {{ label }}{% if loop.index0 == cur_i %} <span class="muted small">· running…</span>{% endif %}</li>
-    {% endfor %}
-  </ol>
-  <div class="muted small">A 40 s clip takes a few minutes on a laptop (most of it is frame extraction and blurring). Cached model answers cost nothing. This page refreshes itself every 5 seconds; the full run page appears when it is done.</div>
-</section>
+<div class="grid">
+  <section class="card c-7 accent">
+    <div class="card-h"><h2>Progress</h2><span class="muted small">refreshes automatically</span></div>
+    {% set stages = ([('recording', 'Recording from the stand camera')] if st.capture else []) + [('ingest', 'Frames extracted, hashed and encrypted'), ('sam', 'SAM 3.1: aircraft, vehicles, persons'), ('redact', 'Persons blurred, redacted frames hashed'), ('rule', 'Hold-zone occupancy and milestones'), ('spark', 'Muse Spark keyframe check'), ('packet', 'Claim comparison and signed packet')] %}
+    {% set cur = (st.stage or '').split(':')[0] %}
+    {% set names = stages | map(attribute=0) | list %}
+    {% set cur_i = names.index(cur) if cur in names else -1 %}
+    <ol class="stages">
+      {% for key, label in stages %}
+      <li class="{% if loop.index0 < cur_i %}done{% elif loop.index0 == cur_i %}now{% endif %}"><span class="n">{{ '✓' if loop.index0 < cur_i else loop.index }}</span> {{ label }}{% if loop.index0 == cur_i %} <span class="muted small">· running…</span>{% endif %}</li>
+      {% endfor %}
+    </ol>
+    <div class="muted small" style="margin-top:8px">A 40-second clip takes a few minutes. When it finishes, the evidence opens here for review.</div>
+  </section>
+  {% if st.capture %}
+  <section class="card c-5">
+    <div class="card-h"><h2>Camera at capture time</h2></div>
+    <div class="media"><img src="/files/snapshots/{{ st.capture.camera_id }}.jpg" alt="" onerror="this.closest('.media').style.display='none'"></div>
+  </section>
+  {% endif %}
+</div>
 {% endif %}
 {% endblock %}
 {% block scripts %}

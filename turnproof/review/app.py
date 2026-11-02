@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -33,7 +34,7 @@ from turnproof.ingest import camera as camera_mod
 from turnproof.ingest import flights as flights_mod
 from turnproof.pipeline import ref_time
 from turnproof.reason import asr_client, intake
-from turnproof.review import jobs, webhooks
+from turnproof.review import jobs, views, webhooks
 from turnproof.review.board import station_board
 from turnproof.review.state_machine import TransitionError
 from turnproof.review.store import RunStore
@@ -71,6 +72,12 @@ def fmt_t(t: str | None) -> str:
 
 templates.env.filters["short"] = short
 templates.env.filters["fmt_t"] = fmt_t
+templates.env.filters["hm"] = views.hm
+templates.env.filters["day"] = views.day
+templates.env.filters["ms_label"] = views.milestone_label
+templates.env.filters["readable"] = views.readable
+templates.env.globals["review_label"] = views.review_label
+templates.env.globals["next_step"] = views.next_step
 
 
 def ctx(request: Request, **kw) -> dict:
@@ -91,6 +98,7 @@ def run_card(run_id: str) -> dict:
     if not meta and packet:
         meta = {
             "flight_number": packet["flight"]["number"],
+            "flight_date": packet["flight"].get("date"),
             "airline": packet["flight"]["airline"],
             "stand": packet["stand"],
             "station": packet["station"],
@@ -230,6 +238,133 @@ def context_frames(run_id: str, s: dict, evidence: list[dict]) -> list[dict]:
     return out
 
 
+def view_cards() -> tuple[list[dict], list[dict | None]]:
+    """run_card() plus presentation fields, and the airline claim stored with each run."""
+    cards, claims = [], []
+    for rid in store.run_ids():
+        try:
+            c = run_card(rid)
+            s = store.summary(rid)
+        except (OSError, KeyError, ValueError, json.JSONDecodeError):
+            continue
+        pk = store.packet(rid)
+        claim = s.get("airline_claim") or (pk or {}).get("airline_claim")
+        fig = views.figures(s, claim)
+        cards.append({**c, "evidence_status": views.evidence_status(s),
+                      "figures": fig,
+                      "outcome": views.outcome(fig, c.get("meta") or {}),
+                      "limitations": views.limitations(s),
+                      "footage": footage_source(rid),
+                      "synced": (s.get("time_sync") or {}).get("status") == "declared"})  # fmt: skip
+        claims.append(claim)
+    return cards, claims
+
+
+def footage_source(run_id: str) -> dict:
+    """Where a run's footage came from: a stand-camera capture, an upload, or a file run from
+    the command line (status.json is written only for console runs)."""
+    try:
+        st = jobs.read_status(store.runs_dir / run_id) or {}
+    except (OSError, ValueError):  # status.json is rewritten in place while a run finishes
+        st = {}
+    cap = st.get("capture")
+    if cap:
+        return {"kind": "camera", "label": f"Stand camera {cap.get('camera_id')}",
+                "camera_id": cap.get("camera_id")}  # fmt: skip
+    if "uploads" in str(st.get("clip") or ""):
+        return {"kind": "upload", "label": "Uploaded footage", "camera_id": None}
+    return {"kind": "file", "label": "Footage file", "camera_id": None}
+
+
+def flight_record(meta: dict) -> dict | None:
+    """The flight-feed (AODB) record for a case: stand, on-block and off-block times."""
+    fn, fd = meta.get("flight_number"), meta.get("flight_date")
+    if not fn:
+        return None
+    hit = next(
+        (
+            f
+            for f in load_station_flights()
+            if f.flight_number == fn and (not fd or f.flight_date == fd)
+        ),
+        None,
+    )
+    return hit.public() if hit else None
+
+
+def frame_sequence(
+    run_id: str, s: dict, packet: dict | None, evidence_only: bool = False
+) -> list[dict]:
+    """Every stored frame of a run in clip order: the signed evidence frames and (handler side)
+    the overlay context frames. Clock times only where the clip is synchronized."""
+    evidence = evidence_list(run_id, s, packet)
+    extra = [] if evidence_only else context_frames(run_id, s, evidence)
+    fps = (s.get("source") or {}).get("fps") or 24.0
+    ts = s.get("time_sync") or {}
+    out = []
+    for e in evidence:
+        idx = int(e.get("frame_index") or 0)
+        ms = [r for r in e.get("roles", []) if r != "spark keyframe"]
+        out.append({"id": e["id"], "img": e["img"], "kind": "evidence", "frame_index": idx,
+                    "t_s": idx / fps, "t_utc": e.get("t_utc"),
+                    "title": " · ".join(views.milestone_label(r) for r in ms) or "Evidence frame",
+                    "milestone": ms[0] if ms else None, "ai": "spark keyframe" in e.get("roles", []),
+                    "phase": views.frame_phase(idx, s), "overlay": "_overlay" in e["img"],
+                    "sha": e.get("sha256_redacted")})  # fmt: skip
+    for c in extra:
+        t_utc = (
+            ref_time(ts.get("reference_start_utc"), c["t_s"], ts.get("speed_factor"))
+            if ts.get("status") == "declared"
+            else None
+        )
+        out.append({"id": c["id"], "img": c["img"], "kind": "context", "frame_index": c["frame_index"],
+                    "t_s": c["t_s"], "t_utc": t_utc, "title": "Context frame", "milestone": None,
+                    "ai": False, "phase": views.frame_phase(c["frame_index"], s), "overlay": True,
+                    "sha": None})  # fmt: skip
+    return sorted(out, key=lambda f: f["frame_index"])
+
+
+def run_view(run_id: str, s: dict, packet: dict | None, evidence_only: bool = False) -> dict:
+    """What the evidence pages show next to the raw summary: figures, frames, the turnaround
+    chart and limitations."""
+    claim = s.get("airline_claim") or (packet or {}).get("airline_claim")
+    meta = s.get("clip_meta") or {}
+    if not meta and packet:
+        meta = {
+            "flight_number": packet["flight"]["number"],
+            "flight_date": packet["flight"]["date"],
+        }
+    fig = views.figures(s, claim)
+    frames = frame_sequence(run_id, s, packet, evidence_only)
+    flight = flight_record(meta)
+    profile = store.profile(run_id)
+    chart = views.turnaround_chart(
+        s, claim, flight, store.review(run_id).get("history"), frames, profile
+    )
+    for f in frames:
+        f["x"] = (chart or {}).get("frames", {}).get(f["id"])
+        f["active"] = views.active_at(profile, f.get("frame_index") or 0)
+    end_name = ((s.get("event") or {}).get("milestones") or {}).get("end", "loading_complete")
+    first = next((i for i, f in enumerate(frames) if f["milestone"] == end_name), None)
+    if first is None:
+        first = next((i for i, f in enumerate(frames) if f["kind"] == "evidence"), 0)
+    return {
+        "claim": claim,
+        "fig": fig,
+        "outcome": views.outcome(fig, meta),
+        "exposure": views.exposure(fig, meta),
+        "timeline": views.comparison_timeline(s, claim),
+        "limitations": views.limitations(s),
+        "ev_status": views.evidence_status(s),
+        "activity": views.activity(s, claim),
+        "frames": frames,
+        "first_frame": first,
+        "chart": chart,
+        "flight": flight,
+        "footage": footage_source(run_id),
+    }
+
+
 def run_verifier(packet_path: Path, run_dir: Path, frames_dir: Path | None = None) -> dict:
     cmd = [
         sys.executable,
@@ -279,11 +414,30 @@ def index(request: Request):
     sent = [c for c in all_packets if c["review"]["state"] in visible_states]
     unsent = [c for c in all_packets if c["review"]["state"] not in visible_states]
     preview = request.query_params.get("preview") == "1"
+    vcards, vclaims = view_cards()
+    cases = views.group_cases(vcards, vclaims)
+    feat = views.featured_case(cases, request.query_params.get("case"))
+    featured = None
+    if feat:
+        rid = feat["primary"]["run_id"]
+        fs = store.summary(rid)
+        fpk = store.packet(rid)
+        featured = {"case": feat, "run_id": rid, "s": fs, "packet": fpk,
+                    "hero": hero_frames(rid, fs), **run_view(rid, fs, fpk)}  # fmt: skip
+    received = [c for c in vcards if c["packet_id"] and c["review"]["state"] in visible_states]
+    if preview:
+        received += [c for c in vcards if c["packet_id"] and c not in received]
+    queue = sorted(cases, key=lambda c: views.next_step(c["primary"]["review"]["state"])["rank"])
     return templates.TemplateResponse(
         request,
         "index.html",
         ctx(
             request,
+            cases=cases,
+            queue=queue,
+            exceptions=exceptions(cases),
+            featured=featured,
+            received=received,
             runs=cards,
             processing=processing_runs(),
             scenarios=scenario_options(),
@@ -297,6 +451,50 @@ def index(request: Request):
     )
 
 
+def exceptions(cases: list[dict]) -> list[dict]:
+    """Operational exceptions worth a look, from what is on file (most serious first)."""
+    out = []
+    for st in processing_runs():
+        if st.get("state") == "failed" and st.get("run_id"):
+            out.append({"tone": "bad", "text": f"Analysis failed · {Path(str(st.get('clip'))).name}",
+                        "href": f"/runs/{st['run_id']}"})  # fmt: skip
+    for c in cases:
+        p, fn = c["primary"], c["meta"].get("flight_number") or "Unknown flight"
+        if p["review"]["state"] == "DISPUTED":
+            out.append(
+                {
+                    "tone": "bad",
+                    "text": f"{fn} disputed by the airline",
+                    "href": f"/runs/{p['run_id']}",
+                }
+            )
+        for r in c["runs"]:
+            hooks = r["review"].get("webhooks") or []
+            if hooks and not hooks[-1].get("ok"):
+                out.append({"tone": "bad", "text": f"{fn}: packet delivery failed",
+                            "href": f"/packets/{r['packet_id']}"})  # fmt: skip
+        if not p.get("synced"):
+            out.append({"tone": "warn", "text": f"{fn}: footage not time-synchronized, minutes cannot be computed",
+                        "href": f"/runs/{p['run_id']}"})  # fmt: skip
+    keys = {c["key"] for c in cases}
+    for r in claim_records():
+        if r["key"] not in keys:
+            out.append({"tone": "warn", "text": f"{r['meta'].get('flight_number')}: claim waiting for footage",
+                        "href": f"/station?flight={quote(str(r['meta'].get('flight_number')))}"})  # fmt: skip
+    for f in flights_mod.flights_without_camera(load_station_flights(), load_station_cameras()):
+        out.append({"tone": "neutral", "text": f"{f.flight_number} on stand {f.stand}: no camera registered",
+                    "href": "/station/cameras"})  # fmt: skip
+    order = {"bad": 0, "warn": 1, "neutral": 2}
+    return sorted(out, key=lambda e: order[e["tone"]])
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    """Sign-in screen prepared for server authentication (not connected yet: the form is shown
+    disabled and the demo workspaces stay reachable, marked as demo only)."""
+    return templates.TemplateResponse(request, "login.html", ctx(request))
+
+
 @app.get("/role/{role}")
 def set_role(role: str, next: str = "/"):
     if role not in ROLES:
@@ -304,6 +502,73 @@ def set_role(role: str, next: str = "/"):
     resp = RedirectResponse(next if next.startswith("/") else "/", status_code=303)
     resp.set_cookie("tp_role", role, samesite="lax")
     return resp
+
+
+def console_claim_paths() -> list[Path]:
+    """Claims on file for the console: only what was registered here (New Claim, or typed into
+    the upload form), newest first. The repo's scenarios/ folders are test fixtures for the CLI
+    and the test-suite; they are never offered in the console, so a demo starts empty."""
+    return sorted((DATA_DIR / "scenarios").glob("*/clip_meta.json"), reverse=True)
+
+
+def claim_records() -> list[dict]:
+    """Every claim on file in the console (see console_claim_paths)."""
+    out = []
+    for meta_path in console_claim_paths():
+        try:
+            meta = json.loads(meta_path.read_text())
+            cp = meta_path.parent / "airline_claim.json"
+            claim = json.loads(cp.read_text()) if cp.exists() else None
+        except (OSError, ValueError):
+            continue
+        if views.is_placeholder_claim(claim):
+            continue
+        out.append({"name": meta_path.parent.name, "meta": meta, "claim": claim,
+                    "from_intake": (meta_path.parent / "intake.json").exists(),
+                    "key": views.case_key(meta)})  # fmt: skip
+    return out
+
+
+@app.get("/claims", response_class=HTMLResponse)
+def claims_page(request: Request):
+    vcards, vclaims = view_cards()
+    cases = {c["key"]: c for c in views.group_cases(vcards, vclaims)}
+    rows = [{**r, "case": cases.get(r["key"])} for r in claim_records()]
+    return templates.TemplateResponse(request, "claims.html", ctx(request, rows=rows))
+
+
+@app.get("/review", response_class=HTMLResponse)
+def review_list(request: Request):
+    vcards, vclaims = view_cards()
+    return templates.TemplateResponse(
+        request,
+        "review_list.html",
+        ctx(request, cases=views.group_cases(vcards, vclaims), processing=processing_runs()),
+    )
+
+
+@app.get("/packets", response_class=HTMLResponse)
+def packets_list(request: Request):
+    vcards, _ = view_cards()
+    rows = []
+    for c in vcards:
+        if not c["packet_id"]:
+            continue
+        pk = store.packet(c["run_id"]) or {}
+        hooks = c["review"].get("webhooks") or []
+        rows.append({**c, "signature": pk.get("signature") or {},
+                     "packet_sha256": pk.get("packet_sha256"),
+                     "case_key": views.case_key(c["meta"] or {}),
+                     "prev_sha": (pk.get("chain") or {}).get("prev_packet_sha256"),
+                     "delivery": hooks[-1] if hooks else None})  # fmt: skip
+    role = role_of(request)
+    sent = [r for r in rows if r["review"]["state"] in views.SENT_STATES]
+    drafts = [r for r in rows if r["review"]["state"] not in views.SENT_STATES]
+    return templates.TemplateResponse(
+        request,
+        "packets.html",
+        ctx(request, sent=sent, drafts=drafts if role == "handler" else []),
+    )
 
 
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -320,11 +585,16 @@ def run_page(request: Request, run_id: str):
     packet = store.packet(run_id)
     evidence = evidence_list(run_id, s, packet)
     role = role_of(request)
+    key = views.case_key(s.get("clip_meta") or {})
+    vcards, vclaims = view_cards()
+    case = next((c for c in views.group_cases(vcards, vclaims) if c["key"] == key), None)
     return templates.TemplateResponse(
         request,
         "run.html",
         ctx(
             request,
+            **run_view(run_id, s, packet),
+            case=case,
             run_id=run_id,
             s=s,
             card=run_card(run_id),
@@ -387,6 +657,8 @@ def packet_page(request: Request, packet_id: str):
         "packet.html",
         ctx(
             request,
+            **run_view(run_id, s, packet, evidence_only=True),
+            hero=hero_frames(run_id, s),
             run_id=run_id,
             packet=packet,
             s=s,
@@ -490,11 +762,12 @@ def event_options() -> dict:
 
 
 def scenario_dir(name: str) -> Path | None:
-    """Saved scenarios live in scenarios/ (repo, synthetic) and data/scenarios/ (made in the
-    console by claim intake)."""
+    """A claim folder by name: data/scenarios/ (registered in the console) first; the repo's
+    scenarios/ (test fixtures) only when a caller names one explicitly, e.g. POST /api/upload
+    from a script. The console never lists the repo ones."""
     if not _safe_id(name):
         return None
-    for base in (Path("scenarios"), DATA_DIR / "scenarios"):
+    for base in (DATA_DIR / "scenarios", Path("scenarios")):
         if (base / name / "clip_meta.json").exists():
             return base / name
     return None
@@ -502,20 +775,22 @@ def scenario_dir(name: str) -> Path | None:
 
 def scenario_options() -> list[dict]:
     opts = []
-    paths = sorted(Path("scenarios").glob("*/clip_meta.json")) + sorted(
-        (DATA_DIR / "scenarios").glob("*/clip_meta.json"), reverse=True
-    )
-    for meta_path in paths:
-        meta = json.loads(meta_path.read_text())
-        claim_path = meta_path.parent / "airline_claim.json"
-        claim = json.loads(claim_path.read_text()) if claim_path.exists() else {}
-        made_here = meta_path.parent.parent == DATA_DIR / "scenarios"
+    for meta_path in console_claim_paths():
+        try:
+            meta = json.loads(meta_path.read_text())
+            claim_path = meta_path.parent / "airline_claim.json"
+            claim = json.loads(claim_path.read_text()) if claim_path.exists() else {}
+        except (OSError, ValueError):
+            continue
+        if views.is_placeholder_claim(claim):
+            continue
         opts.append(
             {
                 "name": meta_path.parent.name,
-                "label": f"{meta_path.parent.name} · {meta.get('flight_number')} {meta.get('airline')} · "
+                "label": f"{meta.get('flight_number')} · {meta.get('airline')} · {meta.get('flight_date')} · "
                 f"{meta.get('station')} stand {meta.get('stand')} · claim code {claim.get('delay_code')}, "
-                f"{claim.get('minutes')} min" + (" · from claim intake" if made_here else ""),
+                f"{claim.get('minutes')} min"
+                + (" · from claim intake" if (meta_path.parent / "intake.json").exists() else ""),
             }
         )
     return opts
@@ -561,9 +836,11 @@ async def _start_upload(
             DATA_DIR / "scenarios" / run_id, manual["meta"], manual["claim"], manual["log"]
         )
     else:
-        scen_dir = scenario_dir(scenario)
+        scen_dir = scenario_dir(scenario) if scenario else None
         if scen_dir is None:
-            raise HTTPException(400, "unknown scenario")
+            raise HTTPException(
+                400, "no claim selected: pick a claim on file or enter the flight by hand"
+            )
     if view not in jobs.VIEWS:
         raise HTTPException(400, "unknown camera view")
     if event not in event_options():
@@ -595,6 +872,8 @@ def _manual_from_form(f) -> dict | None:
         "handler": (f.get("m_handler") or "").strip() or "Handler",
         "camera_id": (f.get("m_camera") or "").strip() or "stand-cam",
         "data_label": "synthetic test data",
+        "sla_penalty_per_min": float(f.get("m_sla_rate") or 0) or None,
+        "currency": (f.get("m_currency") or "EUR").strip(),
     }
     start, end = _utc(f.get("m_win_start")), _utc(f.get("m_win_end"))
     claim = {
@@ -618,6 +897,22 @@ def _manual_from_form(f) -> dict | None:
 
 @app.get("/upload", response_class=HTMLResponse)
 def upload_form(request: Request):
+    """?scenario= preselects a claim; ?flight=&date=&camera= (from Airport & Cameras) carries
+    the flight and camera context into the same upload form."""
+    q = request.query_params
+    selected = q.get("scenario", "")
+    fctx = None
+    if q.get("flight"):
+        f = next(
+            (x for x in load_station_flights()
+             if x.flight_number == q["flight"] and (not q.get("date") or x.flight_date == q["date"])),
+            None,
+        )  # fmt: skip
+        cam = next((c for c in load_station_cameras() if c.id == q.get("camera")), None)
+        scen = scenario_for_flight(q["flight"], q.get("date")) if f else None
+        selected = selected or (scen.name if scen else "")
+        fctx = {"flight": f.public() if f else {"flight_number": q["flight"], "flight_date": q.get("date")},
+                "camera": cam.public() if cam else None, "scenario": scen.name if scen else None}  # fmt: skip
     return templates.TemplateResponse(
         request,
         "upload.html",
@@ -626,7 +921,8 @@ def upload_form(request: Request):
             scenarios=scenario_options(),
             views=jobs.VIEWS,
             events=event_options(),
-            selected=request.query_params.get("scenario", ""),
+            selected=selected,
+            fctx=fctx,
         ),
     )
 
@@ -933,16 +1229,18 @@ def load_station_flights() -> list[flights_mod.Flight]:
 
 
 def scenario_for_flight(flight_number: str, flight_date: str | None) -> Path | None:
-    """The claim + log already on file for this flight (repo scenarios or claim intake)."""
+    """The claim + log already on file for this flight (registered in the console)."""
     best = None
-    for base in (Path("scenarios"), DATA_DIR / "scenarios"):
-        for meta_path in sorted(base.glob("*/clip_meta.json")):
+    for meta_path in console_claim_paths():
+        try:
             meta = json.loads(meta_path.read_text())
-            if meta.get("flight_number") != flight_number:
-                continue
-            if flight_date and meta.get("flight_date") == flight_date:
-                return meta_path.parent
-            best = best or meta_path.parent
+        except (OSError, ValueError):
+            continue
+        if meta.get("flight_number") != flight_number:
+            continue
+        if flight_date and meta.get("flight_date") == flight_date:
+            return meta_path.parent
+        best = best or meta_path.parent
     return best
 
 
@@ -983,40 +1281,144 @@ def station_strip() -> dict:
     }
 
 
+def probe_camera(cams: list[camera_mod.Camera], cam_id: str | None) -> dict:
+    """ffprobe + one snapshot of the camera asked for (?probe=), nothing for the others."""
+    cam = next((c for c in cams if c.id == cam_id), None) if cam_id else None
+    if not cam:
+        return {}
+    res = camera_mod.probe(cam.url)
+    snap = camera_mod.snapshot(cam.url, DATA_DIR / "snapshots" / f"{cam.id}.jpg")
+    res["snapshot"] = f"/files/snapshots/{cam.id}.jpg" if snap else None
+    return {cam.id: res}
+
+
+def camera_state(cam: camera_mod.Camera, probe: dict | None, demo: bool) -> dict:
+    """Live / Replay / Offline from a probe made in this request; otherwise Snapshot (a stored
+    picture, connection unknown) or Not tested. A looped or time-lapse test stream is Replay,
+    never Live."""
+    replay = demo or cam.speed_factor != 1 or cam.note.upper().startswith("DEMO")
+    snap = DATA_DIR / "snapshots" / f"{cam.id}.jpg"
+    snap_t = (
+        datetime.fromtimestamp(snap.stat().st_mtime, UTC).isoformat(timespec="seconds")
+        if snap.exists()
+        else None
+    )
+    scheme = cam.url.split("://", 1)[0].lower() if "://" in cam.url else "file"
+    source = {"rtsp": "RTSP stream", "rtsps": "RTSP stream (TLS)", "http": "HTTP stream",
+              "https": "HTTPS stream"}.get(scheme, "File / test source")  # fmt: skip
+    if probe and probe.get("ok"):
+        label, tone = ("Replay", "warn") if replay else ("Live", "good")
+        detail = f"Reachable · {probe.get('codec')} {probe.get('width')}×{probe.get('height')} @ {probe.get('fps')} fps"
+    elif probe:
+        label, tone, detail = "Offline", "bad", probe.get("error") or "Stream not reachable"
+    elif snap_t:
+        label, tone, detail = "Snapshot", "neutral", "Connection not tested on this page"
+    else:
+        label, tone, detail = "Not tested", "neutral", "Use Test & preview"
+    return {"label": label, "tone": tone, "detail": detail, "replay": replay, "source": source,
+            "probe": probe, "snapshot": (probe or {}).get("snapshot") or
+            (f"/files/snapshots/{cam.id}.jpg" if snap_t else None), "snapshot_t": snap_t}  # fmt: skip
+
+
+def _claim_on_file(scen: Path | None) -> dict | None:
+    if not scen or not (scen / "airline_claim.json").exists():
+        return None
+    try:
+        claim = json.loads((scen / "airline_claim.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return None if views.is_placeholder_claim(claim) else claim
+
+
 @app.get("/station", response_class=HTMLResponse)
 def station_page(request: Request):
+    q = request.query_params
     cams = load_station_cameras()
     fl = load_station_flights()
     windows = flights_mod.plan(fl, cams)
-    probe_id = request.query_params.get("probe")
-    probes = {}
-    if probe_id:
-        cam = next((c for c in cams if c.id == probe_id), None)
-        if cam:
-            probes[cam.id] = camera_mod.probe(cam.url)
-    planned_flights = {w.flight.flight_number + w.flight.flight_date for w in windows}
-    others = [f for f in fl if f.flight_number + f.flight_date not in planned_flights]
-    claims = {
-        f.flight_number: scenario_for_flight(f.flight_number, f.flight_date) is not None for f in fl
-    }
+    probe_id = q.get("probe")
+    probes = probe_camera(cams, probe_id)
+    demo = not cameras_path().exists()
+    states = {c.id: camera_state(c, probes.get(c.id), demo) for c in cams}
+    vcards, vclaims = view_cards()
+    cases = {c["key"]: c for c in views.group_cases(vcards, vclaims)}
+    win_by = {(w.flight.flight_number, w.flight.flight_date): w for w in windows}
+    want_cam = q.get("camera") or probe_id
+    rows = []
+    for f in fl:
+        stand_cams = [c for c in cams if f.stand and c.station == f.station and c.stand == f.stand]
+        w = win_by.get((f.flight_number, f.flight_date))
+        cam = next((c for c in stand_cams if c.id == want_cam), None) or (
+            w.camera if w else (stand_cams[0] if stand_cams else None)
+        )
+        scen = scenario_for_flight(f.flight_number, f.flight_date)
+        case = cases.get(
+            views.case_key({"flight_number": f.flight_number, "flight_date": f.flight_date})
+        )
+        rows.append({"f": f, "window": w, "cams": stand_cams, "cam": cam,
+                     "state": states.get(cam.id) if cam else None,
+                     "scenario": scen.name if scen else None, "claim": _claim_on_file(scen),
+                     "case": case, "key": f"{f.flight_number}-{f.flight_date}"})  # fmt: skip
+    sel = None
+    if q.get("flight"):
+        sel = next((r for r in rows if r["f"].flight_number == q["flight"]
+                    and (not q.get("date") or r["f"].flight_date == q["date"])), None)  # fmt: skip
+    if sel is None and want_cam:
+        sel = next((r for r in rows if r["cam"] and r["cam"].id == want_cam and r["window"]), None)
+    if sel is None:
+        sel = next((r for r in rows if r["window"] and r["window"].state == "due"), None) or next(
+            (r for r in rows if r["window"]), rows[0] if rows else None
+        )
+    feed = {r["f"].flight_number: {"stand": r["f"].stand, "camera": r["cam"].id if r["cam"] else None,
+                                   "key": r["key"], "date": r["f"].flight_date} for r in rows}  # fmt: skip
     return templates.TemplateResponse(
         request,
         "station.html",
         ctx(
             request,
+            rows=rows,
+            sel=sel,
             cameras=[c.public() for c in cams],
-            cameras_source="data/cameras.json"
-            if cameras_path().exists()
-            else "config/cameras_demo.json (demo)",
+            states=states,
+            station=(fl[0].station if fl else (cams[0].station if cams else "")),
             feed_source=str(flights_feed_path()),
-            windows=windows,
-            others=others,
-            claims=claims,
-            probes=probes,
-            views=camera_mod.VIEWS,
-            events=event_options(),
+            feed=feed,
+            demo_registry=demo,
             processing=processing_runs(),
-            adsb=None,
+        ),
+    )
+
+
+@app.get("/station/cameras", response_class=HTMLResponse)
+def station_cameras_page(request: Request):
+    """Manage Cameras: the registry, per-camera test & preview (?probe=) and register / edit
+    (?edit= prefills the form; saving posts to the existing POST /station/cameras)."""
+    q = request.query_params
+    cams = load_station_cameras()
+    probes = probe_camera(cams, q.get("probe"))
+    demo = not cameras_path().exists()
+    flights_by_stand: dict[str, list[str]] = {}
+    for f in load_station_flights():
+        if f.stand:
+            flights_by_stand.setdefault(f"{f.station} {f.stand}", []).append(f.flight_number)
+    edit = next((c.public() for c in cams if c.id == q.get("edit")), None)
+    rows = [
+        {**c.public(), "state": camera_state(c, probes.get(c.id), demo),
+         "flights": flights_by_stand.get(f"{c.station} {c.stand}", [])}
+        for c in cams
+    ]  # fmt: skip
+    return templates.TemplateResponse(
+        request,
+        "cameras.html",
+        ctx(
+            request,
+            cameras=rows,
+            probed=q.get("probe"),
+            edit=edit,
+            stands=sorted({f"{f.station} {f.stand}" for f in load_station_flights() if f.stand}),
+            cameras_source="data/cameras.json" if not demo else "config/cameras_demo.json (demo)",
+            demo_registry=demo,
+            views=camera_mod.VIEWS,
         ),
     )
 
@@ -1143,7 +1545,20 @@ def api_station_arrivals(icao: str = "VOBL", hours: float = 6.0, iata: str = "BL
 # ---- public verify page: anyone, any packet, no account -----------------------------------------
 @app.get("/verify", response_class=HTMLResponse)
 def verify_page(request: Request):
-    return templates.TemplateResponse(request, "verify.html", ctx(request, result=None))
+    vcards, _ = view_cards()
+    role = role_of(request)
+    packets = [
+        c
+        for c in vcards
+        if c["packet_id"] and (role == "handler" or c["review"]["state"] in views.SENT_STATES)
+    ]
+    sel = request.query_params.get("packet")
+    selected = next((c for c in packets if c["packet_id"] == sel), None)
+    return templates.TemplateResponse(
+        request,
+        "verify.html",
+        ctx(request, result=None, packets=packets, selected=selected),
+    )
 
 
 @app.post("/verify", response_class=HTMLResponse)
@@ -1216,7 +1631,10 @@ async def verify_upload(request: Request):
     result = {"ok": r.returncode == 0, "exit_code": r.returncode, "output": r.stdout + r.stderr,
               "command": shown, "summary": summary, "with_frames": frames_dir is not None,
               "with_log": log_path is not None}  # fmt: skip
-    return templates.TemplateResponse(request, "verify.html", ctx(request, result=result))
+    result["checks"] = views.parse_verifier(result["output"])
+    return templates.TemplateResponse(
+        request, "verify.html", ctx(request, result=result, packets=[], selected=None)
+    )
 
 
 @app.get("/packets/{packet_id}/frames.zip")
@@ -1262,6 +1680,16 @@ def display_file(run_id: str, name: str):
     if not p.exists():
         raise HTTPException(404)
     return FileResponse(p, media_type="image/png")
+
+
+@app.get("/files/snapshots/{name}")
+def snapshot_file(name: str):
+    if not _safe_id(name) or not name.endswith(".jpg"):
+        raise HTTPException(404)
+    p = DATA_DIR / "snapshots" / name
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/files/{run_id}/video")

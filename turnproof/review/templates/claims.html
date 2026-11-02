@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Claims{% endblock %}
+{% block content %}
+<section class="ph">
+  <div><div class="eyebrow">Claims</div><h1>Airline delay claims</h1>
+  <div class="sub">Each claim with its flight, stand camera, evidence, review decision, signed packet and airline response.</div></div>
+  <div class="ph-actions"><a class="btn primary" href="/intake">{{ ui.icon('plus') }} New Claim</a></div>
+</section>
+
+<section class="card flush">
+  <div class="toolbar">
+    <input class="input" type="search" placeholder="Search flight, airline, stand, code…" data-filter="#claims-t" data-status="#claims-st" aria-label="Search claims">
+    <select class="input" id="claims-st" aria-label="Filter by evidence">
+      <option value="">All claims</option><option value="evidence">With evidence</option><option value="none">Waiting for evidence</option>
+    </select>
+    <span class="muted small" style="margin-left:auto">{{ rows | length }} claim{{ 's' if rows | length != 1 }}</span>
+  </div>
+  {% if rows %}
+  <div class="table-wrap"><table class="tbl compact" id="claims-t">
+    <thead><tr><th>Flight · Stand</th><th>Claim (UTC)</th><th>Evidence</th><th>Review Decision</th><th>Signed packet · airline response</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% set c = r.case %}{% set win = r.claim.claim_window_utc %}
+    {% set sent = (c.sent | first) if c else none %}{% set pk = sent or ((c.packets | first) if c else none) %}
+    <tr data-row="{{ loop.index }}" data-status="{{ 'evidence' if c else 'none' }}" {% if c %}class="row-link" data-href="/runs/{{ c.primary.run_id }}"{% endif %}>
+      <td><span class="flight">{{ r.meta.flight_number }}</span> <span class="muted tiny">{{ r.meta.airline }}</span>
+        <div class="tiny nowrap"><a href="/station?flight={{ r.meta.flight_number | urlencode }}&date={{ r.meta.flight_date }}"{% if r.meta.camera_id %} title="Camera {{ r.meta.camera_id }}"{% endif %}>{{ r.meta.station }} · {{ r.meta.stand }}</a> <span class="muted">· {{ r.meta.flight_date }}</span></div>{% if r.from_intake %}<div class="muted tiny">from claim intake</div>{% endif %}</td>
+      <td class="nowrap"><span class="chip">{{ r.claim.delay_code }}</span> <b>{{ r.claim.minutes }} min</b><div class="mono tiny muted">{% if win %}{{ win.start | hm }}–{{ win.end | hm }}{% else %}—{% endif %}</div></td>
+      <td>{% if c %}{{ ui.evidence_pill(c.primary.evidence_status) }}<div class="tiny" style="margin-top:3px">{{ ui.outcome_pill(c.primary.outcome, 'plain') }} <span class="muted">{{ c.runs | length }} analys{{ 'es' if c.runs | length != 1 else 'is' }}</span></div>{% else %}<span class="pill plain">No footage yet</span>{% endif %}</td>
+      <td>{% if c %}{{ ui.review_pill(c.primary.review.state) }}{% else %}<span class="muted small">—</span>{% endif %}</td>
+      <td>{% if pk %}<a class="mono small" href="/packets/{{ pk.packet_id }}">{{ pk.packet_id }}</a><div class="muted tiny">{{ 'sent' if sent else 'draft, not sent' }}{% if c.packets | length > 1 %} · {{ c.packets | length }} packets{% endif %}</div>{% else %}<span class="muted small">No packet</span>{% endif %}
+        {% if sent %}<div style="margin-top:4px">{% set stt = sent.review.state %}{% if stt == 'ACKNOWLEDGED' %}<span class="pill good">Acknowledged</span>{% elif stt == 'DISPUTED' %}<span class="pill bad">Disputed</span>{% elif stt == 'RESOLVED' %}<span class="pill good">Resolved</span>{% else %}<span class="pill warn">Awaiting response</span>{% endif %}</div>{% endif %}</td>
+      <td><div class="row-acts">{% if c %}<a class="btn sm" href="/runs/{{ c.primary.run_id }}">Evidence</a>{% endif %}<a class="btn {{ 'sm' if c else 'primary sm' }}" href="/upload?scenario={{ r.name }}">Add footage</a></div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty" style="margin:18px">No claims yet. Start with <a href="/intake">New Claim</a>.</div>{% endif %}
+</section>
+{% endblock %}

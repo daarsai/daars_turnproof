@@ -9,5 +9,5 @@ COPY scripts ./scripts
 COPY config ./config
 COPY scenarios ./scenarios
 RUN pip install --no-cache-dir -e .
-EXPOSE 8080
-CMD ["uvicorn", "turnproof.review.app:app", "--host", "0.0.0.0", "--port", "8080"]
+EXPOSE 8090
+CMD ["uvicorn", "turnproof.review.app:app", "--host", "0.0.0.0", "--port", "8090"]

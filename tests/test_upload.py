@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from turnproof import pipeline as pl
 from turnproof.reason import asr_client
 from turnproof.review import app as app_mod
+from turnproof.review import webhooks
 from turnproof.review.store import RunStore
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -81,14 +82,18 @@ def test_upload_starts_a_run_and_the_console_follows_it(tmp_path, monkeypatch):
     monkeypatch.setattr(pl, "SparkClient", FakeSpark)
     monkeypatch.setattr(app_mod, "DATA_DIR", Path("data"))
     monkeypatch.setattr(app_mod, "store", RunStore(Path("data")))
+    monkeypatch.setattr(webhooks, "targets", lambda data_dir=None: [])  # no outbound HTTP here
     _clip(tmp_path / "test_clip.mp4")
 
     c = TestClient(app_mod.app)
     r = c.get("/upload")
     assert r.status_code == 200 and 'name="clip"' in r.text
+    # the machine endpoint needs X-API-Key when keys are configured (as on a real deployment)
+    monkeypatch.setenv("TURNPROOF_API_KEYS", "test-key")
     with (tmp_path / "test_clip.mp4").open("rb") as fh:
         r = c.post(
             "/api/upload",
+            headers={"X-API-Key": "test-key"},
             files={"clip": ("test_clip.mp4", fh, "video/mp4")},
             data={
                 "scenario": "clip1",

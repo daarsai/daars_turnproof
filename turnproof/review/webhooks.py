@@ -39,7 +39,7 @@ def targets(data_dir: Path = Path("data")) -> list[dict]:
                 "events": list(EVENTS),
             }
         )
-    base = os.environ.get("TURNPROOF_BASE_URL", "http://127.0.0.1:8080")
+    base = os.environ.get("TURNPROOF_BASE_URL", "http://127.0.0.1:8090")
     for t in out:
         t["url"] = t["url"].replace("{base_url}", base)
     return out
@@ -80,7 +80,7 @@ def deliver(
     event: str, run_id: str, packet: dict, data_dir: Path = Path("data"), timeout_s: float = 8.0
 ) -> list[dict]:
     """POST to every target subscribed to `event`. Never raises; returns one result per target."""
-    base = os.environ.get("TURNPROOF_BASE_URL", "http://127.0.0.1:8080")
+    base = os.environ.get("TURNPROOF_BASE_URL", "http://127.0.0.1:8090")
     results = []
     for t in targets(data_dir):
         if event not in (t.get("events") or EVENTS):

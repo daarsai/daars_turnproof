@@ -1,269 +1,260 @@
 {% extends "base.html" %}
-{% block title %}{{ run_id }}{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ card.meta.flight_number if card.meta else run_id }} · Evidence Review{% endblock %}
+{% block crumb %}<a href="/review">Evidence Review</a> › <b>{{ card.meta.flight_number if card.meta else run_id }}</b>{% if card.created %}<span class="faint">· analysis {{ card.created | day }} {{ card.created | hm }}</span>{% endif %}{% endblock %}
 {% block content %}
-{% set ts = s.time_sync %}
+{% set ts = s.time_sync or {} %}
+{% set synced = ts.status == 'declared' %}
 {% set spark = s.spark or {} %}
 {% set rcc = spark.rule_claim_check or {} %}
-{% set claim = s.airline_claim or (packet.airline_claim if packet else none) %}
+{% set meta = card.meta or {} %}
+{% set start_name = s.event.milestones.start if s.event else 'loader_docked_start' %}
+{% set end_name = s.event.milestones.end if s.event else 'loading_complete' %}
+{% set stm = (s.milestones | selectattr('name', 'equalto', start_name) | list | first) %}
+{% set lcm = (s.milestones | selectattr('name', 'equalto', end_name) | list | first) %}
+{% set loglc = (s.handler_log or []) | selectattr('milestone', 'equalto', end_name) | list | first %}
 
-<div class="crumbs"><a href="/">Runs</a> › {{ run_id }}</div>
-
-<section class="run-head">
+<section class="ph">
   <div>
-    <h1>{% if card.meta %}{{ card.meta.flight_number }} · {{ card.meta.airline }} · stand {{ card.meta.stand }}{% else %}{{ run_id }}{% endif %}</h1>
-    <div class="muted">run <span class="mono">{{ run_id }}</span> · clip <span class="mono">{{ card.clip }}</span>{% if s.event %} · event <b>{{ s.event.label }}</b>{% if not s.event.validated %} <span class="chip warn tiny">not validated on footage</span>{% endif %}{% endif %} · camera view <b>{{ s.view or 'default' }}</b> · zone used <b>{{ s.zone_used }}</b>
-      {% if ts.speed_factor %} · footage speed ×{{ ts.speed_factor }} ({{ ts.speed_factor_source }}){% endif %}</div>
+    <div class="eyebrow">Evidence Review</div>
+    <h1>{% if meta %}{{ meta.flight_number }} · {{ (s.event.label if s.event else 'Loading equipment at the hold') }}{% else %}{{ run_id }}{% endif %}</h1>
+    <div class="sub">{{ (meta.flight_date | day) or meta.flight_date }} · analysis {{ card.created | day }} {{ card.created | hm }} UTC · {{ footage.label }}{% if packet %} · packet <span class="mono">{{ packet.packet_id }}</span>{% endif %}</div>
   </div>
-  <div class="chips">
-    {% if s.status == 'candidate' %}<span class="chip good big">candidate event found</span>
-    {% elif s.status == 'candidate_unsynced' %}<span class="chip warn big">candidate · unsynced</span>
-    {% else %}<span class="chip big">no candidate</span>{% endif %}
-    <span class="state big s-{{ review.state }}">{{ review.state }}</span>
-  </div>
-</section>
-
-{% if ts.status != 'declared' %}
-<div class="banner warn"><b>Unsynced clip.</b> No start time or speed factor was declared for this footage, so milestones have
-frame numbers but no real-world clock time, and no minutes can be computed. The packet says so.</div>
-{% endif %}
-{% if s.status == 'no_candidate' %}
-<div class="banner"><b>Nothing to claim from this clip.</b> Equipment was in the zone when the clip started and never left,
-so there is no <em>{{ (s.event.milestones.end if s.event else 'loading_complete') | replace('_', ' ') }}</em> moment to put against the airline's delay window. This is the correct outcome, not a failure.</div>
-{% endif %}
-
-{% if hero.before or hero.after %}
-<section class="card hero-card">
-  <h2>The evidence <span class="muted small">two redacted frames from the clip, boxes drawn by SAM 3.1 · click a picture to open it full size</span></h2>
-  <div class="pair">
-    {% for side in (hero.before, hero.after) %}
-    {% if side %}
-    <figure class="pair-item seek" data-frame="{{ side.frame_index }}">
-      <a href="{{ side.img }}" target="_blank" rel="noopener"><img src="{{ side.img }}" alt="{{ side.title }}"></a>
-      <figcaption>
-        <div class="pair-title">{{ side.title }}</div>
-        <div class="mono">{{ side.t_utc | fmt_t if side.t_utc else '' }}{% if side.t_utc %} · {% endif %}frame {{ side.frame_index }} · {{ '%.1f' % side.t_s }} s into clip{% if side.milestone %} · <b>{{ side.milestone | replace('_', ' ') }}</b>{% endif %}</div>
-      </figcaption>
-    </figure>
-    {% endif %}
-    {% endfor %}
-  </div>
-  {% set end_name = s.event.milestones.end if s.event else 'loading_complete' %}
-  {% set lcm = (s.milestones | selectattr('name', 'equalto', end_name) | list | first) %}
-  {% if lcm %}
-  <div class="verdict">
-    <span class="chip good big">{{ end_name | replace('_', ' ') }} at {{ lcm.t_utc | fmt_t }}</span>
-    <span>rule confidence <b>{{ '%.2f' % lcm.confidence }}</b></span>
-    <span>· Muse Spark {% if rcc.agree is true %}<span class="chip good">agrees</span>{% elif rcc.agree is false %}<span class="chip bad">disagrees</span>{% else %}<span class="chip">not run</span>{% endif %}</span>
-    {% if s.proposed_claim and claim %}<span>· airline claims <b>{{ claim.minutes }} min</b>, video supports <b>{% if s.proposed_claim.minutes_supported_by_video is none %}n/a{% else %}{{ s.proposed_claim.minutes_supported_by_video }} min{% endif %}</b></span>{% endif %}
-  </div>
-  {% endif %}
-</section>
-{% endif %}
-
-<div class="grid-2">
-  <section class="card">
-    <h2>Footage <span class="muted small">redacted copy{% if s.source %} · {{ s.source.duration_s }} s{% endif %}</span></h2>
-    {% if has_video %}
-    <video id="vid" controls preload="metadata" src="/files/{{ run_id }}/video"></video>
-    {% else %}<div class="empty">video not kept for this run</div>{% endif %}
-    <h3>Hold-zone occupancy <span class="muted small">share of any vehicle box inside <b>{{ s.zone_used }}</b>, sampled at {{ (occupancy.fps / occupancy.step) | round(1) if occupancy else '' }}/s</span></h3>
-    {% if occupancy %}
-    <div id="timeline" class="timeline"></div>
-    <div class="legend"><span><i class="sw green"></i>equipment in zone (≥ τ {{ occupancy.tau }})</span><span><i class="sw grey"></i>below τ</span><span><i class="sw orange"></i>docked period used</span><span><i class="sw navy"></i>milestone</span><span class="muted">click the strip to seek the video</span></div>
-    {% else %}
-    <div class="empty small">No occupancy series stored for this run (older run). Re-run the clip with <code>make demo</code> to get the timeline.</div>
-    {% endif %}
-  </section>
-
-  <section class="card">
-    <h2>What the video shows</h2>
-    {% if s.milestones %}
-    <ol class="milestones">
-      {% for m in s.milestones %}
-      <li>
-        <div class="ms-name">{{ m.name }}</div>
-        <div class="ms-time mono">{{ m.t_utc | fmt_t }} <span class="muted">frame {{ m.frame_index }}</span></div>
-        <div class="muted small">{{ 'SAM 3.1 vehicle-in-zone rule' if m.method.startswith('sam31') else 'Muse Spark keyframe' }} · confidence {{ '%.2f' % m.confidence }}
-          {% if 'present_at_clip_start' in m.method %}· <span class="warn-text">already present at clip start (upper bound)</span>{% endif %}
-          {% if 'cut_short' in m.method %}· <span class="warn-text">departure cut short by clip end</span>{% endif %}
-          {% if m.frame_index is not none %}· <a href="#" class="seek" data-frame="{{ m.frame_index }}">show</a>{% endif %}
-        </div>
-      </li>
-      {% endfor %}
-    </ol>
-    {% else %}<div class="empty small">No milestones.</div>{% endif %}
-
-    <h3>Against the airline's claim</h3>
-    {% set pc = s.proposed_claim %}
-    <table class="kv">
-      {% if claim %}<tr><th>Airline claims</th><td>delay code <b>{{ claim.delay_code }}</b>, <b>{{ claim.minutes }} min</b>{% if claim.claim_window_utc %} <span class="muted">({{ claim.claim_window_utc.start | fmt_t }}–{{ claim.claim_window_utc.end | fmt_t }})</span>{% endif %}</td></tr>{% endif %}
-      {% if pc %}
-      <tr><th>Video supports</th><td>code family <b>{{ pc.delay_code_family }}</b> · {% if pc.minutes_supported_by_video is none %}<b>n/a</b>{% else %}<b>{{ pc.minutes_supported_by_video }} min</b>{% endif %}</td></tr>
-      <tr><th>Basis</th><td>{{ pc.basis }}</td></tr>
-      {% endif %}
-    </table>
-
-    <h3>Your decision <span class="muted small">{{ 'ground handler' if role == 'handler' else 'airline reviewer' }}</span></h3>
-    {% if actions %}
-    <form method="post" action="/runs/{{ run_id }}/action" class="decide">
-      <textarea name="note" rows="2" placeholder="Note (required to reject / correct / dispute; required to confirm when flagged or confidence < 0.70)"></textarea>
-      <div class="btns">
-        {% for a in actions %}
-        <button class="btn {{ 'primary' if a in ('confirm','send','acknowledge') else ('danger' if a in ('reject','dispute') else '') }}" name="action" value="{{ a }}">{{ a | capitalize }}{% if a == 'send' %} to airline{% endif %}</button>
+  <div class="ph-actions">
+    {% if case and case.runs | length > 1 %}
+    <details class="drawer" data-menu>
+      <summary class="btn">{{ ui.icon('history') }} Analysis runs · {{ case.runs | length }}</summary>
+      <div class="drawer-panel">
+        <div class="muted small dp-h">Every analysis of footage for {{ meta.flight_number }}. Nothing is overwritten.</div>
+        {% for r in case.runs %}
+        <a class="rh {{ 'on' if r.run_id == run_id }}" href="/runs/{{ r.run_id }}">
+          <span class="rh-t">{{ r.created | day }} {{ r.created | hm }} UTC{% if r.run_id == run_id %} <span class="chip">shown</span>{% endif %}{% if r.run_id == case.primary.run_id %} <span class="chip">case result</span>{% endif %}</span>
+          <span class="rh-s">{{ r.footage.label }} · {{ r.clip }}</span>
+          <span class="rh-p">{{ ui.evidence_pill(r.evidence_status) }}{% if r.synced %}<span class="pill good plain">Synchronized</span>{% else %}<span class="pill warn plain">Not synchronized</span>{% endif %}{{ ui.review_pill(r.review.state) }}</span>
+        </a>
         {% endfor %}
       </div>
-      {% if 'confirm' in actions and (review.requires_operator_review or review.spark_confidence < review.confidence_floor) %}
-      <div class="muted small">Flagged for operator review{% if review.spark_confidence < review.confidence_floor %} (Spark confidence {{ '%.2f' % review.spark_confidence }} below {{ review.confidence_floor }}){% endif %} — confirming needs a note.</div>
-      {% endif %}
-    </form>
-    {% else %}
-    <div class="muted small">
-      {% if review.state == 'OBSERVED' %}Nothing to decide: no candidate event.
-      {% elif review.state == 'CANDIDATE' %}Waiting for the Muse Spark keyframe check (run without <code>--no-spark</code>).
-      {% elif role == 'airline' and review.state in ('UNDER_REVIEW','CONFIRMED') %}The handler has not sent this packet yet.
-      {% elif review.state == 'SENT' %}Sent. Waiting for the airline reviewer{% if packet %} — <a href="/packets/{{ packet.packet_id }}">open the packet view</a>{% endif %}.
-      {% else %}No action available for your role in state {{ review.state }}.{% endif %}
-    </div>
+    </details>
     {% endif %}
-    {% if role == 'handler' and review.state in ('UNDER_REVIEW', 'CONFIRMED') %}
-    <h3>Operator statement <span class="muted small">optional · spoken statements are transcribed by Muse Voice Transcribe and signed into the packet on Send</span></h3>
-    {% if review.statement %}
-    <div class="statement">
-      <div class="small">{% if review.statement.source == 'spoken' %}<span class="chip good tiny">spoken · {{ review.statement.model }}</span>{% else %}<span class="chip tiny">typed</span>{% endif %} <span class="muted mono tiny">{{ review.statement.recorded_at_utc }}</span></div>
-      <p class="reason">“{{ review.statement.text }}”</p>
-    </div>
-    {% endif %}
-    <form method="post" action="/runs/{{ run_id }}/statement" enctype="multipart/form-data" class="decide" id="stmt-form">
-      <div class="btns">
-        <button type="button" class="btn" id="rec-btn">● Record statement</button>
-        <span id="rec-status" class="muted small"></span>
-      </div>
-      <input type="file" name="audio" id="rec-file" hidden>
-      <textarea name="text" rows="2" placeholder="…or type the statement here"></textarea>
-      <div class="btns"><button class="btn" type="submit">Save statement</button></div>
-    </form>
-    {% endif %}
-    {% if review.history %}
-    <ul class="history">{% for h in review.history %}<li><span class="mono small">{{ h.t_utc | fmt_t if h.t_utc else '' }}</span> <b>{{ h.actor }}</b> {{ h.action }} → {{ h.to }}{% if h.note %} — <i>{{ h.note }}</i>{% endif %}</li>{% endfor %}</ul>
-    {% endif %}
-    {% if review.webhooks %}
-    <ul class="history">{% for w in review.webhooks %}<li><span class="mono small">{{ w.t_utc | fmt_t }}</span> webhook <b>{{ w.event }}</b> → {{ w.url }} {% if w.ok %}<span class="chip good tiny">HTTP {{ w.status }}</span>{% else %}<span class="chip bad tiny">{{ w.error or w.status }}</span>{% endif %}</li>{% endfor %}</ul>
-    {% endif %}
-    {% if packet %}<div class="small">Packet <a class="mono" href="/packets/{{ packet.packet_id }}">{{ packet.packet_id }}</a> · sha256 <span class="mono">{{ packet.packet_sha256 | short(16) }}…</span> · signed {{ packet.signature.alg }} ({{ packet.signature.key_id }})</div>{% endif %}
-  </section>
-</div>
-
-<section class="card">
-  <h2>Evidence frames <span class="muted small">boxes drawn on redacted copies; the hashed frames are untouched</span></h2>
-  <div class="frames">
-    {% for e in evidence %}
-    <figure class="frame seek" data-frame="{{ e.frame_index }}">
-      <a href="{{ e.img }}" target="_blank" rel="noopener"><img src="{{ e.img }}" alt="{{ e.id }}" loading="lazy"></a>
-      <figcaption>
-        <div><b class="mono">{{ e.id }}</b> · {{ e.t_utc | fmt_t }} · frame {{ e.frame_index }}</div>
-        <div class="roles-line">{% for r in e.roles %}<span class="chip tiny">{{ r }}</span>{% endfor %}</div>
-        {% if e.sha256_redacted %}<div class="mono tiny muted">sha256 {{ e.sha256_redacted | short(20) }}…{% if e.redaction %} · {{ e.redaction | replace('_', ' ') }}{% endif %}</div>{% endif %}
-      </figcaption>
-    </figure>
-    {% endfor %}
-    {% for e in context %}
-    <figure class="frame ctx seek" data-frame="{{ e.frame_index }}">
-      <a href="{{ e.img }}" target="_blank" rel="noopener"><img src="{{ e.img }}" alt="{{ e.id }}" loading="lazy"></a>
-      <figcaption><div class="mono">{{ e.id }}</div><div class="muted tiny">context · {{ '%.1f' % e.t_s }} s into clip</div></figcaption>
-    </figure>
-    {% endfor %}
+    {% if role == 'handler' and meta.flight_number %}<a class="btn" href="/station?flight={{ meta.flight_number | urlencode }}&date={{ meta.flight_date }}">{{ ui.icon('camera') }} Stand &amp; camera</a>{% endif %}
   </div>
-  <div class="legend small"><span><i class="sw navy dashed"></i>aircraft (SAM 3.1 "aircraft")</span><span><i class="sw orange"></i>hold zone, fraction of the aircraft box</span><span><i class="sw green"></i>vehicle in zone (SAM 3.1 "vehicle")</span><span><i class="sw grey"></i>other vehicle</span></div>
 </section>
 
-<div class="grid-2">
+{{ ui.case_header(meta, fig, ev_status, review.state, synced) }}
+
+{% if not synced %}
+<div class="banner warn"><b>Time not synchronized.</b> No declared start time: events carry clip time only, and no real-world minutes are computed.</div>
+{% elif s.status == 'no_candidate' %}
+<div class="banner neutral"><b>No complete event detected.</b> {{ (s.proposed_claim or {}).basis | readable }}. This does not prove the event did not happen; the footage may not cover it.</div>
+{% endif %}
+{% if s.event and not s.event.validated %}<div class="banner warn">The event type “{{ s.event.label }}” has not been validated on real footage yet.</div>{% endif %}
+
+<div class="grid">
+  <div class="c-8 stack">
+  <section class="card accent">
+    <div class="card-h">
+      <div><h2>Evidence</h2><div class="muted">{{ ev_status.label }} · persons blurred before display and hashing</div></div>
+      <div class="tabs" data-tabs><button type="button" class="on" data-tab="pane-frames">Frames</button>{% if has_video %}<button type="button" data-tab="pane-video">Source video</button>{% endif %}</div>
+    </div>
+    <div id="pane-frames">{{ ui.frame_viewer(frames, first_frame, 'tchart', meta.camera_id, s.view) }}</div>
+    {% if has_video %}
+    <div id="pane-video" hidden>
+      <div class="media"><video id="vid" controls preload="metadata" src="/files/{{ run_id }}/video"></video></div>
+      <div class="muted small" style="margin-top:8px">Footage as analysed ({{ s.source.duration_s if s.source else '' }} s). The signed record is the redacted frames.</div>
+    </div>
+    {% endif %}
+    <div class="legend"><span><i class="sw dashed"></i>aircraft</span><span><i class="sw orange"></i>hold zone</span><span><i class="sw green"></i>equipment in zone</span><span><i class="sw grey"></i>other vehicle</span><span><i class="sw ev"></i>signed evidence frame</span></div>
+  </section>
+
   <section class="card">
-    <h2>Discrepancy table <span class="muted small">video vs handler log vs claim</span></h2>
-    <table class="disc">
-      <thead><tr><th>Milestone</th><th>Video</th><th>Handler log</th><th>Video − log</th><th>Note</th></tr></thead>
+    <div class="card-h"><h2>Handler log comparison</h2><span class="muted small">video vs your milestone log</span></div>
+    <div class="table-wrap"><table class="tbl compact">
+      <thead><tr><th>Milestone</th><th>Video</th><th>Handler log</th><th>Difference</th></tr></thead>
       <tbody>
       {% for r in s.discrepancies %}
-      <tr>
-        <td class="strong">{{ r.milestone }}</td>
-        <td class="mono">{{ r.video_utc | fmt_t }}</td>
-        <td class="mono">{{ r.handler_log_utc | fmt_t if r.handler_log_utc else '—' }}</td>
-        <td class="mono">{% if r.video_minus_log_min is not none %}{{ '%+.1f' % r.video_minus_log_min }} min{% else %}—{% endif %}</td>
-        <td class="small">{{ r.note or '' }}
-          {% if r.video_supported_minutes is not none %}<div>claimed <b>{{ r.airline_claim_minutes }}</b> min, video supports <b>{{ r.video_supported_minutes }}</b> min (Δ {{ r.delta_min }})</div>{% endif %}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5" class="muted">no milestones to compare</td></tr>
-      {% endfor %}
+      <tr><td><b>{{ r.milestone | ms_label }}</b>{% if r.note %}<div class="muted tiny">{{ r.note }}</div>{% endif %}</td>
+        <td class="mono nowrap">{{ (r.video_utc | hm) if r.video_utc else '—' }}</td>
+        <td class="mono nowrap">{{ (r.handler_log_utc | hm) if r.handler_log_utc else '—' }}</td>
+        <td class="mono nowrap">{% if r.video_minus_log_min is not none %}{{ '%+.1f' % r.video_minus_log_min }} min{% else %}—{% endif %}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">No milestones to compare.</td></tr>{% endfor %}
       </tbody>
-    </table>
-    {% if s.handler_log %}<div class="muted small">Handler log (synthetic): {% for h in s.handler_log %}<span class="mono">{{ h.milestone }} {{ h.t_utc | fmt_t }}</span>{{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
+    </table></div>
   </section>
+  </div>
 
-  <section class="card">
-    <h2>Keyframe check <span class="muted small">Muse Spark 1.3 · flags, never decides</span></h2>
-    {% if spark.ok %}
-    <div class="spark-head">
-      {% if rcc.agree is true %}<span class="chip good big">agrees with the rule</span>
-      {% elif rcc.agree is false %}<span class="chip bad big">disagrees with the rule</span>
-      {% else %}<span class="chip big">reviewed</span>{% endif %}
-      <span class="muted">claim checked: <b>{{ rcc.claim }}</b> · confidence <b>{{ '%.2f' % (spark.confidence or 0) }}</b> · hold door <b>{{ spark.hold_door_state }}</b>
-        {% if spark.requires_operator_review %}· <span class="warn-text">operator review required</span>{% endif %}</span>
+  <div class="c-4 stack">
+    <section class="card">
+      <div class="card-h"><h2>Claim vs Evidence</h2></div>
+      <div class="cmp">
+        <div class="cmp-row claim"><span class="k">Airline claims</span><span class="v big">{% if fig.no_claim %}None received{% else %}{{ fig.claimed }} min · code {{ fig.code }}{% endif %}</span></div>
+        <div class="cmp-row claim"><span class="k">Claimed interval</span><span class="v">{% if fig.window %}{{ fig.window[0] }}–{{ fig.window[1] }} UTC{% else %}—{% endif %}</span></div>
+        <div class="cmp-row"><span class="k">Video · {{ start_name | ms_label | lower }}</span><span class="v">{% if stm and stm.t_utc %}{{ 'by ' if 'present_at_clip_start' in stm.method }}{{ stm.t_utc | hm }} UTC{% elif stm %}{{ '%.1f' % (stm.frame_index / ((s.source.fps if s.source else none) or 24)) }} s into clip{% else %}Not observed{% endif %}</span></div>
+        <div class="cmp-row hl"><span class="k">Video · {{ end_name | ms_label | lower }}</span><span class="v">{% if lcm and lcm.t_utc %}{{ lcm.t_utc | hm }} UTC{% elif lcm %}{{ '%.1f' % (lcm.frame_index / ((s.source.fps if s.source else none) or 24)) }} s into clip{% else %}Not observed{% endif %}</span></div>
+        <div class="cmp-row"><span class="k">Handler log · {{ end_name | ms_label | lower }}</span><span class="v">{{ (loglc.t_utc | hm) ~ ' UTC' if loglc else '—' }}</span></div>
+        <div class="cmp-row"><span class="k">Comparable on one clock</span><span class="v">{{ 'Yes' if synced else 'No' }}</span></div>
+        <div class="cmp-row {{ 'hl' if fig.supported is not none }}"><span class="k">Supported by video</span><span class="v big">{{ ui.minutes(fig.supported, fig.supported_why) }}</span></div>
+        {% if fig.difference is not none %}<div class="cmp-row"><span class="k">Difference to review</span><span class="v">{{ fig.difference }} min</span></div>{% endif %}
+      </div>
+      {{ ui.outcome_box(outcome) }}
+      {{ ui.assessment(fig, review.state, ev_status) }}
+      {% if limitations %}<details class="more" {{ 'open' if review.state == 'UNDER_REVIEW' }}><summary>Evidence limitations ({{ limitations | length }})</summary><div class="more-body"><ul class="limits">{% for l in limitations %}<li>{{ l }}</li>{% endfor %}</ul></div></details>{% endif %}
+    </section>
+
+    <section class="card decision" id="decision">
+      <div class="state-line"><h2>Review Decision</h2>{{ ui.review_pill(review.state) }}</div>
+      {% if actions %}
+      <form method="post" action="/runs/{{ run_id }}/action">
+        <textarea class="note" name="note" rows="3" placeholder="Note for the record (required to reject, correct or dispute)"></textarea>
+        <div class="btns">
+          {% for a in actions %}
+          <button class="btn {{ 'primary' if a in ('confirm','send','acknowledge') else ('danger' if a in ('reject','dispute') else '') }}" name="action" value="{{ a }}">{{ {'send': 'Send to airline', 'confirm': 'Confirm', 'reject': 'Reject', 'correct': 'Correct', 'acknowledge': 'Acknowledge', 'dispute': 'Dispute', 'resolve': 'Resolve'}.get(a, a | capitalize) }}</button>
+          {% endfor %}
+        </div>
+        {% if 'confirm' in actions and (review.requires_operator_review or review.spark_confidence < review.confidence_floor) %}
+        <div class="muted small" style="margin-top:8px">Flagged for operator review{% if review.spark_confidence < review.confidence_floor %} (AI confidence {{ '%.2f' % review.spark_confidence }} below {{ review.confidence_floor }}){% endif %}: confirming needs a note.</div>
+        {% endif %}
+      </form>
+      {% else %}
+      <div class="muted small">
+        {% if review.state == 'OBSERVED' %}Nothing to decide: no candidate event in this footage.
+        {% elif review.state == 'CANDIDATE' %}Waiting for the Muse Spark keyframe check.
+        {% elif role == 'airline' and review.state in ('UNDER_REVIEW','CONFIRMED') %}The handler has not sent this packet yet.
+        {% elif review.state == 'SENT' %}Sent. Waiting for the airline's response.
+        {% else %}No action available in your workspace for this case.{% endif %}
+      </div>
+      {% endif %}
+
+      {% if role == 'handler' and review.state in ('UNDER_REVIEW', 'CONFIRMED') %}
+      <details class="more" {{ 'open' if review.statement }}>
+        <summary>Operator statement · optional, signed into the packet</summary>
+        <div class="more-body">
+          {% if review.statement %}
+          <div class="quote">“{{ review.statement.text }}”<div class="tiny muted" style="margin-top:4px">{{ 'Spoken · transcribed by ' ~ review.statement.model if review.statement.source == 'spoken' else 'Typed' }} · {{ review.statement.recorded_at_utc | hm }} UTC</div></div>
+          {% endif %}
+          <form method="post" action="/runs/{{ run_id }}/statement" enctype="multipart/form-data" id="stmt-form">
+            <div class="btns" style="margin-top:0"><button type="button" class="btn" id="rec-btn">● Record statement</button><span id="rec-status" class="muted small"></span></div>
+            <input type="file" name="audio" id="rec-file" hidden>
+            <textarea class="note" name="text" rows="2" placeholder="…or type the statement" style="margin-top:10px"></textarea>
+            <div class="btns"><button class="btn" type="submit">Save statement</button></div>
+          </form>
+        </div>
+      </details>
+      {% endif %}
+
+      {% if review.state == 'SENT' and role == 'handler' %}<div class="next"><b>Sent.</b> The signed packet was delivered to the airline. <a href="/role/airline?next=/packets/{{ packet.packet_id if packet else '' }}">View as Airline →</a></div>
+      {% elif review.state == 'CONFIRMED' %}<div class="next"><b>Confirmed.</b> Next: <b>Send to airline</b>.</div>
+      {% elif review.state == 'UNDER_REVIEW' and role == 'handler' %}<div class="next"><b>Next:</b> check the frames and the timeline, then <b>Confirm</b>, <b>Correct</b> or <b>Reject</b> with a note.</div>
+      {% elif review.state in ('ACKNOWLEDGED', 'DISPUTED', 'RESOLVED') and packet %}<div class="next">Airline response recorded. <a href="/packets/{{ packet.packet_id }}">Open the packet →</a></div>{% endif %}
+    </section>
+  </div>
+</div>
+
+<section class="card section-gap tc-card" id="turnaround">
+  <div class="card-h">
+    <div><h2>Turnaround Timeline</h2><div class="muted">{% if chart and chart.mode == 'utc' %}Flight feed, camera observations, handler log and the airline's claim on one UTC axis{% else %}Camera observations in clip time; this footage has no clock{% endif %}</div></div>
+  </div>
+  {{ ui.turnaround_chart(chart) }}
+  {% if occupancy %}
+  <details class="more">
+    <summary>Detection signal · equipment in the {{ (s.zone_used or 'hold') | replace('_', ' ') }} zone over the clip</summary>
+    <div class="more-body">
+      <div id="timeline" class="timeline"></div>
+      <div class="legend"><span><i class="sw green"></i>equipment in zone</span><span><i class="sw grey"></i>below threshold</span><span><i class="sw orange"></i>docked period</span><span><i class="sw navy"></i>milestone</span></div>
     </div>
-    {% if rcc.reason %}<p class="reason">“{{ rcc.reason }}”</p>{% endif %}
-    <ul class="facts">
-      {% for f in s.observed_facts %}<li>{{ f.text }} <span class="muted mono tiny">{{ f.frames | join(', ') }}</span></li>{% endfor %}
-    </ul>
-    {% if spark.suggested_delay_code_family %}<div class="small muted">Spark's suggested code family: <b>{{ spark.suggested_delay_code_family }}</b> — recorded as a note only; the packet's proposed claim comes from the rule and the claim window, never from this field.</div>{% endif %}
-    <div class="muted tiny">prompt {{ spark.prompt_version }} · output path {{ spark.path }} · reasoning effort {{ spark.reasoning_effort }} · structured JSON (strict schema)</div>
+  </details>
+  {% endif %}
+</section>
+
+<div class="grid section-gap">
+  <section class="card c-4">
+    <div class="card-h"><h2>AI observations</h2><span class="muted small">Muse Spark · flags, never decides</span></div>
+    {% if spark.ok %}
+    <div class="btns" style="margin-top:0">
+      {% if rcc.agree is true %}<span class="pill good">agrees with the rule</span>
+      {% elif rcc.agree is false %}<span class="pill bad">disagrees with the rule</span>
+      {% else %}<span class="pill">reviewed</span>{% endif %}
+      <span class="muted small">confidence {{ '%.2f' % (spark.confidence or 0) }} · hold door {{ spark.hold_door_state or 'unknown' }}</span>
+    </div>
+    {% if spark.requires_operator_review %}<div class="pill warn plain" style="margin-top:8px">Operator review required</div>{% endif %}
+    {% if rcc.reason %}<div class="quote">{{ rcc.reason }}</div>{% endif %}
+    {% if s.observed_facts %}<ul class="facts">{% for f in s.observed_facts %}<li>{{ f.text }}</li>{% endfor %}</ul>{% endif %}
     {% else %}
-    <div class="empty small">Spark check not run for this clip{% if s.status == 'no_candidate' %} (no candidate to check){% endif %}.</div>
+    <div class="muted small">Keyframe check not run for this footage{% if s.status == 'no_candidate' %} (no candidate event to check){% endif %}.</div>
     {% endif %}
   </section>
+
+  <section class="card c-4">
+    <div class="card-h"><h2>Evidence source</h2></div>
+    <table class="kv">
+      <tr><th>Footage</th><td>{{ footage.label }}</td></tr>
+      <tr><th>Camera</th><td>{{ meta.camera_id or 'not recorded' }} · {{ (s.view or 'default') | replace('_', ' ') }} view</td></tr>
+      <tr><th>Time sync</th><td>{% if synced %}<span class="pill good">Synchronized</span> <span class="small muted">start {{ ts.reference_start_utc | hm }} UTC</span>{% else %}<span class="pill warn">Not synchronized</span>{% endif %}</td></tr>
+      <tr><th>Footage speed</th><td>{% if ts.speed_factor %}×{{ '%g' % ts.speed_factor }} · {{ (ts.speed_factor_source or '') | replace('_', ' ') }}{% else %}—{% endif %}</td></tr>
+      {% if lcm %}<tr><th>Rule confidence</th><td>{{ '%.2f' % lcm.confidence }}</td></tr>{% endif %}
+    </table>
+  </section>
+
+  <section class="card c-4">
+    <div class="card-h"><h2>Signed Evidence Packet</h2>{% if packet %}<span class="pill info plain">{{ packet.signature.alg }}</span>{% endif %}</div>
+    {% if packet %}
+    <table class="kv">
+      <tr><th>Packet</th><td><a class="mono" href="/packets/{{ packet.packet_id }}">{{ packet.packet_id }}</a></td></tr>
+      <tr><th>Evidence frames</th><td>{{ packet.evidence_frames | length }} redacted, each hashed</td></tr>
+      <tr><th>Event log</th><td>{{ events | length }} hash-chained entries</td></tr>
+    </table>
+    <div class="btns"><button class="btn dark" type="button" data-verify="{{ packet.packet_id }}" data-target="trust-run">Verify packet</button><button class="btn" type="button" data-tamper="{{ packet.packet_id }}" data-target="trust-run" title="copies the frames, changes one pixel, verifies the copy">Tamper test</button></div>
+    <div class="btns"><a class="btn sm" href="/packets/{{ packet.packet_id }}.pdf">PDF</a><a class="btn sm" href="/packets/{{ packet.packet_id }}.json">JSON</a><a class="btn sm" href="/packets/{{ packet.packet_id }}/frames.zip">Frames zip</a></div>
+    {% else %}<div class="muted small">No packet for this analysis.</div>{% endif %}
+  </section>
+</div>
+{% if packet %}<div id="trust-run" class="section-gap" hidden></div>{% endif %}
+
+<div class="grid section-gap">
+  <section class="card c-12">
+    <div class="card-h"><h2>Decision history</h2></div>
+    {% if review.history or review.webhooks %}
+    <ul class="history">
+      {% for h in review.history or [] %}<li><b>{{ review_label(h.to).label }}</b> · {{ h.actor | replace('_', ' ') }} <span class="muted mono tiny">{{ h.t_utc | day }} {{ h.t_utc | hm }}</span>{% if h.note %}<div class="muted">“{{ h.note }}”</div>{% endif %}</li>{% endfor %}
+      {% for w in review.webhooks or [] %}<li>Delivery <b>{{ w.event }}</b> {% if w.ok %}<span class="pill good plain">delivered</span>{% else %}<span class="pill bad plain">{{ w.error or w.status }}</span>{% endif %} <span class="muted mono tiny">{{ w.t_utc | hm }}</span></li>{% endfor %}
+    </ul>
+    {% else %}<div class="muted small">No human decisions yet.</div>{% endif %}
+  </section>
 </div>
 
-{% if packet %}
-<section class="card">
-  <h2>Integrity <span class="muted small">what the airline will check</span></h2>
-  <div class="grid-2 tight">
+<details class="more section-gap">
+  <summary>Technical details · model outputs, frame hashes, event log</summary>
+  <div class="more-body">
+    <h3>Milestones (raw)</h3>
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Name</th><th>UTC</th><th>Frame</th><th>Method</th><th>Confidence</th></tr></thead><tbody>
+      {% for m in s.milestones %}<tr><td class="mono">{{ m.name }}</td><td class="mono">{{ m.t_utc or 'unsynced' }}</td><td>{{ m.frame_index }}</td><td class="mono tiny">{{ m.method }}</td><td>{{ '%.2f' % m.confidence }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <h3>Evidence frames</h3>
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Frame</th><th>UTC</th><th>Role</th><th>SHA-256 (redacted)</th></tr></thead><tbody>
+      {% for e in evidence %}<tr><td class="mono">{{ e.id }}</td><td class="mono">{{ e.t_utc or '—' }}</td><td class="small">{{ e.roles | join(', ') }}</td><td class="mono tiny break">{{ e.sha256_redacted or '' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if spark.ok %}
+    <h3>Muse Spark output</h3>
+    <table class="kv"><tr><th>Rule claim checked</th><td class="mono">{{ rcc.claim }}</td></tr><tr><th>Prompt</th><td>{{ spark.prompt_version }} · path {{ spark.path }} · effort {{ spark.reasoning_effort }}</td></tr>
+      {% if spark.suggested_delay_code_family %}<tr><th>Suggested code family</th><td>{{ spark.suggested_delay_code_family }} <span class="muted small">(note only; the proposed claim comes from the rule and the claim window)</span></td></tr>{% endif %}</table>
+    {% endif %}
+    {% set m = s.metrics or metrics or {} %}
+    <h3>Models and processing</h3>
     <table class="kv">
-      <tr><th>Packet</th><td><a class="mono" href="/packets/{{ packet.packet_id }}">{{ packet.packet_id }}</a> · <a href="/packets/{{ packet.packet_id }}.json">JSON</a> · <a href="/packets/{{ packet.packet_id }}.pdf">PDF</a></td></tr>
-      <tr><th>Packet hash</th><td class="mono small break">{{ packet.packet_sha256 }}</td></tr>
-      <tr><th>Signature</th><td class="mono small">{{ packet.signature.alg }} · key {{ packet.signature.key_id }}</td></tr>
-      <tr><th>Frame hashes</th><td class="small">{{ packet.evidence_frames | length }} redacted evidence frames, each SHA-256 in the packet; originals encrypted, hashed before redaction</td></tr>
-      <tr><th>Event log</th><td class="small">{{ events | length }} hash-chained entries; the packet carries the chain head at build time, later decisions extend the chain</td></tr>
-    </table>
-    <div>
-      <div class="btns"><button class="btn primary" id="btn-verify">Verify packet now</button><button class="btn" id="btn-tamper" title="copies the frames, changes one pixel, verifies the copy">Tamper test</button></div>
-      <pre id="verify-out" class="term" hidden></pre>
-      <div class="muted small">Runs <code>verify_packet.py</code> on this machine: schema, frame hashes, chain, packet hash, signature. Anyone with the packet, the frames and the public key gets the same answer.</div>
-    </div>
-  </div>
-</section>
-{% endif %}
-
-<div class="grid-2">
-  <section class="card">
-    <h2>Models and cost <span class="muted small">this run</span></h2>
-    {% set m = s.metrics or metrics %}
-    <table class="kv">
-      <tr><th>SAM 3.1</th><td>concepts <span class="mono">aircraft, vehicle, person</span> · {{ m.sam_requests }} video calls ({{ m.sam_requests_live }} live, rest cached) · {{ m.frames_processed }} frames</td></tr>
+      <tr><th>SAM 3.1</th><td>aircraft, vehicle, person · {{ m.sam_requests }} video calls ({{ m.sam_requests_live }} live) · {{ m.frames_processed }} frames</td></tr>
       <tr><th>Muse Spark 1.3</th><td>{{ m.spark_calls }} call(s) · {{ m.spark_tokens_in }} tokens in / {{ m.spark_tokens_out }} out</td></tr>
-      <tr><th>Estimated cost</th><td><b>${{ '%.4f' % m.est_cost_usd }}</b> for this run (cached calls are free)</td></tr>
-      <tr><th>Latency</th><td class="mono small">{% for k, v in m.latency_s.items() %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>
+      {% if m.est_cost_usd is not none %}<tr><th>Estimated model cost</th><td>${{ '%.4f' % m.est_cost_usd }} (cached calls are free)</td></tr>{% endif %}
+      {% if m.latency_s %}<tr><th>Latency</th><td class="mono small">{% for k, v in m.latency_s.items() %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>{% endif %}
       <tr><th>Time sync</th><td class="small">{{ ts.method }}</td></tr>
+      <tr><th>Run</th><td class="mono small">{{ run_id }} · {{ card.clip }}</td></tr>
+      {% if packet %}<tr><th>Packet hash</th><td class="mono small break">{{ packet.packet_sha256 }}</td></tr>
+      <tr><th>Signature</th><td class="mono small">{{ packet.signature.alg }} · key {{ packet.signature.key_id }}</td></tr>{% endif %}
     </table>
-  </section>
-  <section class="card">
-    <h2>Event log <span class="muted small">append-only, hash-chained</span></h2>
-    <table class="events">
-      <tbody>
-      {% for ev in events %}
-      <tr><td class="mono tiny">{{ ev.seq }}</td><td class="mono small">{{ ev.t_utc | fmt_t }}</td><td><b>{{ ev.actor }}</b></td><td>{{ ev.action }}</td><td class="muted small">{% if ev.from_state %}{{ ev.from_state }} → {{ ev.to_state }}{% endif %}</td><td class="mono tiny muted">{{ ev.hash | short(10) }}…</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </section>
-</div>
+    <h3>Event log <span class="muted small">hash-chained</span></h3>
+    <div class="table-wrap"><table class="tbl"><tbody>
+      {% for ev in events %}<tr><td class="mono tiny">{{ ev.seq }}</td><td class="mono small">{{ ev.t_utc }}</td><td><b>{{ ev.actor }}</b></td><td>{{ ev.action }}</td><td class="muted small">{% if ev.from_state %}{{ ev.from_state }} → {{ ev.to_state }}{% endif %}</td><td class="mono tiny muted">{{ ev.hash | short(12) }}…</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</details>
 {% endblock %}
 
 {% block scripts %}
@@ -272,26 +263,11 @@ so there is no <em>{{ (s.event.milestones.end if s.event else 'loading_complete'
 (function () {
   const vid = document.getElementById('vid');
   const FPS = {{ ((s.source.fps if s.source else none) or 24) | tojson }};
-  function seek(frame) { if (vid) { vid.currentTime = frame / FPS; vid.pause(); vid.scrollIntoView({behavior: 'smooth', block: 'nearest'}); } }
-  document.querySelectorAll('.seek').forEach(el => el.addEventListener('click', e => {
-    if (e.target.closest('a[target=_blank]')) return;
-    e.preventDefault(); seek(parseFloat(el.dataset.frame));
-  }));
-  const out = document.getElementById('verify-out');
-  async function call(url, label) {
-    out.hidden = false; out.textContent = label + ' …'; out.className = 'term';
-    try {
-      const r = await fetch(url, {method: 'POST'});
-      const j = await r.json();
-      const good = (j.ok === true) || (j.tamper_detected === true);
-      out.textContent = (j.command ? '$ python ' + j.command + '\n\n' : '') + j.output + '\nexit code ' + j.exit_code;
-      out.className = 'term ' + (good ? 'ok' : 'bad');
-    } catch (e) { out.textContent = 'request failed: ' + e; out.className = 'term bad'; }
-  }
-  {% if packet %}
-  document.getElementById('btn-verify').addEventListener('click', () => call('/api/packets/{{ packet.packet_id }}/verify', 'verifying'));
-  document.getElementById('btn-tamper').addEventListener('click', () => call('/api/packets/{{ packet.packet_id }}/tamper', 'tampering a copy and verifying'));
-  {% endif %}
+  window.tpSeek = function (frame, quiet) {
+    if (!vid) return;
+    vid.currentTime = frame / FPS; vid.pause();
+    if (!quiet) { const b = document.querySelector('[data-tab="pane-video"]'); if (b) b.click(); vid.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
+  };
   // ---- statement recorder (MediaRecorder -> webm -> server converts to WAV -> Voice Transcribe)
   const recBtn = document.getElementById('rec-btn');
   if (recBtn) {
@@ -321,10 +297,10 @@ so there is no <em>{{ (s.event.milestones.end if s.event else 'loading_complete'
   if (!node) return;
   const occ = JSON.parse(node.textContent);
   const box = document.getElementById('timeline');
-  const W = Math.max(600, box.clientWidth || 1000), H = 130, top = 14, base = 100;
+  const W = 1000, H = 130, top = 14, base = 100;
   const n = Math.max(1, occ.n_frames);
   const x = f => (f / n) * W;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="tl">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="tl">`;
   (occ.cycles[occ.zone] || []).forEach(c => {
     const e = c.end == null ? n : c.end;
     svg += `<rect x="${x(c.start)}" y="${top}" width="${x(e) - x(c.start)}" height="${base - top}" class="cyc"/>`;
@@ -342,17 +318,14 @@ so there is no <em>{{ (s.event.milestones.end if s.event else 'loading_complete'
     svg += `<text x="${x(h.frame_index) + 6}" y="${top + 2}" class="mslbl">${h.name.replace(/_/g, ' ')}</text>`;
   });
   svg += `<line id="playhead" x1="0" x2="0" y1="${top - 10}" y2="${base + 4}" class="ph"/>`;
-  // x axis in clip seconds
   const dur = n / occ.fps;
   for (let s = 0; s <= dur; s += dur > 60 ? 10 : 5) {
-    const xx = (s * occ.fps / n) * W;
-    svg += `<text x="${xx}" y="${H - 6}" class="ax">${s}s</text>`;
+    svg += `<text x="${(s * occ.fps / n) * W}" y="${H - 6}" class="ax">${s}s</text>`;
   }
-  svg += '</svg>';
-  box.innerHTML = svg;
+  box.innerHTML = svg + '</svg>';
   box.addEventListener('click', ev => {
     const r = box.getBoundingClientRect();
-    seek(((ev.clientX - r.left) / r.width) * n);
+    window.tpSeek(((ev.clientX - r.left) / r.width) * n);
   });
   if (vid) vid.addEventListener('timeupdate', () => {
     const ph = document.getElementById('playhead');

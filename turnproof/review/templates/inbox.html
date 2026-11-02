@@ -1,40 +1,43 @@
 {% extends "base.html" %}
-{% block title %}Webhook inbox{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ 'Delivery Log' if role == 'handler' else 'Case Responses' }}{% endblock %}
+{% block crumb %}{% if role == 'handler' %}<a href="/packets">Sent Packets</a> › <b>Delivery Log</b>{% else %}<b>Case Responses</b>{% endif %}{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/">Home</a> › Webhook inbox</div>
-<section class="run-head">
-  <div>
-    <h1>Webhook inbox <span class="muted small">stands in for the airline's claims system</span></h1>
-    <div class="muted">When the handler sends a packet (and when the airline answers), TurnProof POSTs the signed packet to every subscribed endpoint with an HMAC-SHA256 signature over the body. In production the target is the airline's system; in this demo it is this inbox, so the whole loop is visible on one machine.</div>
-  </div>
+<section class="ph">
+  <div><div class="eyebrow">{{ 'Delivery Log' if role == 'handler' else 'Case Responses' }}</div>
+  <h1>{{ 'Signed deliveries' if role == 'handler' else 'Packets and responses exchanged' }}</h1>
+  <div class="sub">Every send, acknowledgement and dispute is delivered as a signed message. In this demo the console's own inbox stands in for the airline's claims system.</div></div>
 </section>
-<div class="grid-2">
-  <section class="card">
-    <h2>Deliveries received</h2>
-    {% if items %}
-    <table class="disc">
-      <thead><tr><th>Received (UTC)</th><th>Event</th><th>Packet</th><th>Flight</th><th>Video supports</th><th>Signature</th></tr></thead>
-      <tbody>
-      {% for it in items %}
-      <tr>
-        <td class="mono small">{{ it.received_at_utc | fmt_t }}</td>
-        <td><span class="chip tiny">{{ it.event }}</span></td>
-        <td class="mono small"><a href="/packets/{{ it.packet_id }}">{{ it.packet_id }}</a><div class="muted tiny">sha256 {{ it.packet_sha256 | short(12) }}…</div></td>
-        <td class="small">{{ it.flight.number if it.flight else '' }}</td>
-        <td class="small">{% if it.proposed_claim %}{{ it.proposed_claim.delay_code_family }} · {% if it.proposed_claim.minutes_supported_by_video is none %}n/a{% else %}{{ it.proposed_claim.minutes_supported_by_video }} min{% endif %}{% endif %}</td>
-        <td>{% if it.signature_ok %}<span class="chip good tiny">valid</span>{% else %}<span class="chip bad tiny">invalid</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% else %}<div class="empty small">Nothing received yet. Send a packet from a run page.</div>{% endif %}
-  </section>
-  <section class="card">
-    <h2>Subscribed endpoints</h2>
-    <table class="disc"><thead><tr><th>URL</th><th>Events</th></tr></thead><tbody>
-      {% for t in targets %}<tr><td class="mono small">{{ t.url }}</td><td class="small">{{ t.events | join(', ') }}</td></tr>{% endfor %}
-    </tbody></table>
-    <div class="muted small">Configured in <code>data/webhooks.json</code> (or <code>TURNPROOF_WEBHOOK_URL</code>); the demo uses <code>config/webhooks_demo.json</code>. Header <code>X-TurnProof-Signature</code> = HMAC-SHA256 of the body with the shared secret; the packet inside is verified separately with the public key.</div>
-  </section>
-</div>
+
+<section class="card flush">
+  <div class="card-h"><h2>Deliveries received</h2><span class="muted small">{{ items | length }}</span></div>
+  {% if items %}
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Received (UTC)</th><th>Event</th><th>Flight</th><th>Packet</th><th>Video supports</th><th>Message signature</th></tr></thead>
+    <tbody>
+    {% for it in items %}
+    <tr class="row-link" data-href="/packets/{{ it.packet_id }}">
+      <td class="mono small">{{ it.received_at_utc | day }} {{ it.received_at_utc | hm }}</td>
+      <td>{% set ev = it.event or '' %}{% if ev.endswith('sent') %}<span class="pill info">Packet sent</span>{% elif ev.endswith('acknowledged') %}<span class="pill good">Acknowledged</span>{% elif ev.endswith('disputed') %}<span class="pill bad">Disputed</span>{% else %}<span class="pill plain">{{ ev }}</span>{% endif %}</td>
+      <td class="flight">{{ it.flight.number if it.flight else '' }}</td>
+      <td class="mono small"><a href="/packets/{{ it.packet_id }}">{{ it.packet_id }}</a></td>
+      <td>{% if it.proposed_claim %}{% if it.proposed_claim.minutes_supported_by_video is none %}<span class="muted small">Not determined</span>{% else %}{{ it.proposed_claim.minutes_supported_by_video }} min{% endif %}{% endif %}</td>
+      <td>{% if it.signature_ok %}<span class="pill good">valid</span>{% else %}<span class="pill bad">invalid</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <div style="padding:0 18px 18px">{% if role == 'handler' %}<div class="next"><b>Next:</b> open the packet as the airline — <a href="/role/airline?next=/packets/{{ items[0].packet_id }}">View as Airline → {{ items[0].packet_id }}</a> — then verify it and acknowledge or dispute.</div>{% endif %}</div>
+  {% else %}<div class="empty" style="margin:0 18px 18px">Nothing delivered yet. A message arrives here when the handler presses <b>Send to airline</b>.</div>{% endif %}
+</section>
+
+<details class="more section-gap">
+  <summary>Subscribed endpoints · message signing</summary>
+  <div class="more-body">
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Endpoint</th><th>Events</th></tr></thead><tbody>
+      {% for t in targets %}<tr><td class="mono small break">{{ t.url }}</td><td class="small">{{ t.events | join(', ') }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="muted small" style="margin-top:8px">Message body signed with HMAC-SHA256 (<code>X-TurnProof-Signature</code>); the packet inside is verified with the public key.</div>
+  </div>
+</details>
 {% endblock %}

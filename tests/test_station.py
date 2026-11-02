@@ -53,6 +53,7 @@ def test_station_capture_runs_the_pipeline(tmp_path, monkeypatch):
         [sys.executable, str(ROOT / "scripts/gen_keys.py")], check=True, capture_output=True
     )
     monkeypatch.setenv("TURNPROOF_PUBLIC_KEY", str(tmp_path / "keys/turnproof-demo-2026.pub"))
+    monkeypatch.delenv("TURNPROOF_API_KEYS", raising=False)
     monkeypatch.setattr(pl, "SamClient", FakeSam)
     monkeypatch.setattr(pl, "SparkClient", FakeSpark)
     monkeypatch.setattr(app_mod, "DATA_DIR", Path("data"))

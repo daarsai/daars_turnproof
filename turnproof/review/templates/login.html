@@ -1,0 +1,54 @@
+{% import "_ui.html" as ui %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · TurnProof</title>
+<link rel="stylesheet" href="/static/style.css?v=3.1">
+<link rel="icon" href="/static/daars-logo.svg">
+</head>
+<body>
+<div class="login">
+  <aside class="login-side">
+    <div>
+      <a href="/login" class="brand" style="border:0;padding:0"><span class="brand-mark">TP</span><span><span class="brand-name">TurnProof</span><span class="brand-sub">by DAARS Instruments</span></span></a>
+      <h1>TurnProof</h1>
+      <div class="tag-line">Aircraft Turnaround Evidence &amp; Resolution</div>
+    </div>
+    <ul>
+      <li>Stand-camera footage turned into timed turnaround milestones</li>
+      <li>Airline delay claims compared with video evidence and handler logs</li>
+      <li>Signed, independently verifiable evidence packets</li>
+      <li>People decide; models detect and flag</li>
+    </ul>
+    <div class="small" style="color:#8FA3C0">Demonstration build · synthetic test data on licensed footage</div>
+  </aside>
+
+  <main class="login-main">
+    <div class="login-card">
+      <section class="card">
+        <h2 style="font-size:21px">Sign in</h2>
+        <div class="muted small" style="margin:4px 0 18px">Your organisation decides your workspace: Ground Handler or Airline.</div>
+        <div class="banner warn small" style="margin-bottom:16px"><b>Sign-in is not connected yet.</b> Server authentication is part of the backend phase, so these fields are disabled.</div>
+        <form onsubmit="return false" aria-disabled="true">
+          <fieldset disabled>
+            <label class="field">Work email <input type="email" name="email" autocomplete="username" placeholder="name@organisation.com"></label>
+            <label class="field">Password <input type="password" name="password" autocomplete="current-password"></label>
+            <button class="btn primary lg block" type="submit">Sign in</button>
+          </fieldset>
+        </form>
+      </section>
+      <section class="card section-gap">
+        <div class="am-label" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--warn);font-weight:700;margin-bottom:8px">Development / demo only</div>
+        <div class="muted small" style="margin-bottom:12px">Open a demo workspace without signing in. This switch is not access control.</div>
+        <div class="seg-role">
+          <a href="/role/handler?next=/"><b>Ground Handler</b><small>Claims, evidence, cameras, packets</small></a>
+          <a href="/role/airline?next=/"><b>Airline</b><small>Received cases, verification, responses</small></a>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

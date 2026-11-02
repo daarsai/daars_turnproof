@@ -1,130 +1,206 @@
 {% extends "base.html" %}
-{% block title %}Station{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}Airport &amp; Cameras{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/">Runs</a> › Station</div>
-<section class="run-head">
-  <div>
-    <h1>Station: cameras and flights</h1>
-    <div class="muted">No human upload: the flight feed says which aircraft is on which stand from on-block to off-block; the stand camera is recorded for that window; the run starts when the recording ends and the claim on file for that flight is attached. Feed: <span class="mono">{{ feed_source }}</span> · cameras: <span class="mono">{{ cameras_source }}</span></div>
+{% set block_status = {'on_block': ('On blocks', 'good'), 'off_block': ('Off-block', 'neutral'), 'airborne': ('Airborne', 'info'), 'landed': ('Landed', 'info'), 'scheduled': ('Scheduled', 'neutral'), 'departed': ('Departed', 'neutral')} %}
+<section class="ph">
+  <div><div class="eyebrow">Airport &amp; Cameras</div><h1>{{ station or 'Station' }} · stands, flights and cameras</h1></div>
+  <div class="ph-actions">
+    {% if demo_registry %}<span class="pill warn plain" title="Cameras come from config/cameras_demo.json: local test streams looping recorded footage">Demo registry · replay streams</span>{% endif %}
+    <a class="btn dark" href="/station/cameras">{{ ui.icon('gear') }} Manage Cameras</a>
   </div>
 </section>
 
-{% if processing %}
-<div class="cards">
-  {% for st in processing %}
-  <a class="rcard processing" href="/runs/{{ st.run_id }}">
-    <div class="rcard-body">
-      <div class="rcard-title">{% if st.state == 'failed' %}Run failed{% elif st.state == 'recording' %}Recording…{% else %}Processing…{% endif %} <span class="mono small">{{ st.run_id }}</span></div>
-      {% if st.capture %}<div class="muted small">{{ st.capture.flight_number }} · stand {{ st.capture.stand }} · {{ st.capture.camera_id }} · {{ st.capture.seconds }} s</div>{% endif %}
-      <div class="rcard-ms">{% if st.state == 'failed' %}<span class="chip bad">{{ st.error }}</span>{% else %}<span class="chip warn">{{ st.stage }}</span>{% endif %}</div>
-      <div class="rcard-cta">{% if st.state == 'failed' %}See the error →{% else %}Watch progress →{% endif %}</div>
+{% for st in processing %}
+<div class="banner {{ 'bad' if st.state == 'failed' else '' }}"><b>{% if st.state == 'failed' %}Analysis failed{% elif st.state == 'recording' %}Recording{% else %}Analysis in progress{% endif %}</b>{% if st.capture %} · {{ st.capture.flight_number }} · stand {{ st.capture.stand }} · {{ st.capture.seconds }} s{% endif %} · {{ st.stage or st.error }} · <a href="/runs/{{ st.run_id }}">{{ 'See the error' if st.state == 'failed' else 'Watch progress' }} →</a></div>
+{% endfor %}
+
+{% if not rows %}
+<div class="empty">No flights in the flight feed ({{ feed_source }}).</div>
+{% else %}
+<div class="ops">
+  <div class="ops-left">
+    <section class="card flush">
+      <div class="card-h"><div><h2>Flights on stands</h2><div class="muted">{{ station }} · airport flight feed</div></div><span class="muted small">{{ rows | length }}</span></div>
+      {% for r in rows %}{% set f = r.f %}{% set bs = block_status.get(f.status, (f.status | replace('_', ' ') | capitalize, 'neutral')) %}
+      <a class="fl {{ 'sel' if sel and r.key == sel.key }}" data-flight="{{ r.key }}" href="/station?flight={{ f.flight_number | urlencode }}&amp;date={{ f.flight_date }}">
+        <div class="fl-top">
+          <div><span class="flight">{{ f.flight_number }}</span> <span class="muted small">{{ f.airline }}</span></div>
+          {% if r.window and r.window.state == 'due' %}<span class="pill good">On stand now</span>{% elif r.window and r.window.state == 'planned' %}<span class="pill warn">Planned</span>{% else %}<span class="pill {{ bs[1] }}">{{ bs[0] }}</span>{% endif %}
+        </div>
+        <div class="fl-sub">Stand <b style="color:var(--ink)">{{ f.stand or '—' }}</b> · {% if f.on_block_utc %}on-block {{ f.on_block_utc | hm }}{% if f.off_block_utc %} → off-block {{ f.off_block_utc | hm }}{% endif %} UTC{% elif f.eta_utc %}ETA {{ f.eta_utc | hm }} UTC{% else %}no block times yet{% endif %}</div>
+        <div class="fl-tags">
+          {% if r.claim %}<span class="tag good">Claim · {{ r.claim.minutes }} min</span>{% else %}<span class="tag">No claim</span>{% endif %}
+          {% if r.case %}<span class="tag {{ r.case.status.tone }}">{{ r.case.status.label }}</span>{% else %}<span class="tag">No evidence</span>{% endif %}
+          {% if r.cam %}<span class="tag {{ r.state.tone }}" title="{{ r.state.detail }}">{{ ui.icon('camera') }} {{ r.state.label }}</span>{% else %}<span class="tag warn">No camera</span>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+      <div class="muted tiny" style="padding:10px 16px 14px">Flight feed: {{ feed_source }}</div>
+    </section>
+  </div>
+
+  <div class="ops-right">
+    {% for r in rows %}{% set f = r.f %}{% set c = r.cam %}{% set st = r.state %}
+    {% set q = 'flight=' ~ (f.flight_number | urlencode) ~ '&date=' ~ f.flight_date %}
+    <div class="stack" data-flight-panel="{{ r.key }}" {{ 'hidden' if not (sel and r.key == sel.key) }}>
+      <section class="card accent">
+        <div class="card-h">
+          <div><h2>{{ f.flight_number }} · {{ f.airline }}</h2><div class="muted">{{ f.station }} · stand {{ f.stand or 'not assigned' }}{% if f.registration %} · {{ f.registration }}{% endif %} · {{ (f.flight_date | day) or f.flight_date }}</div></div>
+          <div class="links">
+            {% if r.case %}<a href="/runs/{{ r.case.primary.run_id }}">{{ ui.icon('review') }}Evidence</a>{% endif %}
+            {% if r.case and r.case.packets %}<a href="/packets/{{ r.case.packets[0].packet_id }}">{{ ui.icon('packets') }}Packet</a>{% endif %}
+            {% if r.claim %}<a href="/claims">{{ ui.icon('claims') }}Claim</a>{% elif role == 'handler' %}<a href="/intake">{{ ui.icon('plus') }}New Claim</a>{% endif %}
+          </div>
+        </div>
+        <div class="ctx-grid">
+          <div><span>Stand</span><b>{{ f.stand or '—' }}</b></div>
+          <div><span>Landed</span><b>{{ f.landed_utc | hm }}</b></div>
+          <div><span>On-block</span><b>{{ f.on_block_utc | hm }}</b></div>
+          <div><span>Off-block</span><b>{{ f.off_block_utc | hm }}</b></div>
+          <div><span>Claim</span><b>{% if r.claim %}{{ r.claim.minutes }} min · code {{ r.claim.delay_code }}{% else %}None on file{% endif %}</b></div>
+          <div><span>Evidence</span>{% if r.case %}{{ ui.evidence_pill(r.case.status) }}{% else %}<b>None yet</b>{% endif %}</div>
+        </div>
+
+        {% if c %}
+        <div class="card-h" style="margin-bottom:10px">
+          <div><h3 style="margin:0">Stand {{ c.stand }} camera · <span class="mono">{{ c.id }}</span></h3>
+            <div class="muted small">{{ c.view | replace('_', ' ') }} view · {{ st.source }}{% if c.speed_factor != 1 %} · ×{{ '%g' % c.speed_factor }} time-lapse{% endif %}</div></div>
+          <div class="ph-actions">
+            <span class="pill {{ st.tone }}" title="{{ st.detail }}">{{ st.label }}</span>
+            {% if r.cams | length > 1 %}<span class="cam-pick">{% for oc in r.cams %}<a class="btn sm {{ 'dark' if oc.id == c.id }}" href="/station?{{ q }}&camera={{ oc.id }}">{{ oc.id }}</a>{% endfor %}</span>{% endif %}
+          </div>
+        </div>
+        {% if st.snapshot %}
+        <div class="media">
+          <img src="{{ st.snapshot }}?v={{ st.snapshot_t }}" alt="Camera view of stand {{ c.stand }}">
+          <div class="badge-tl">{% if st.probe and st.probe.ok %}<span class="pill {{ st.tone }}">{{ 'Replay · looped recorded footage' if st.replay else 'Live' }}</span>{% else %}<span class="pill">Snapshot · not live</span>{% endif %}</div>
+          <div class="cap"><div><div class="cap-title">Stand {{ c.stand }}{% if r.window and r.window.state == 'due' %} · {{ f.flight_number }} on stand{% endif %}</div>
+            <div class="cap-meta">{% if st.probe and st.probe.ok %}frame taken just now{% else %}taken {{ st.snapshot_t | day }} {{ st.snapshot_t | hm }} UTC{% endif %} · camera view, not evidence</div></div></div>
+        </div>
+        {% else %}
+        <div class="preview-empty"><div><div style="font-size:16px;color:#CBD5E1;font-weight:650">No preview yet</div><div class="small" style="margin-top:6px">Test &amp; preview checks the stream and takes one snapshot.</div></div></div>
+        {% endif %}
+        <div class="meta-row"><span>Connection <b>{{ st.label }}</b> · {{ st.detail }}</span>{% if c.note %}<span>{{ c.note }}</span>{% endif %}</div>
+        {% else %}
+        <div class="preview-empty"><div><div style="font-size:16px;color:#CBD5E1;font-weight:650">No camera on stand {{ f.stand or '—' }}</div><div class="small" style="margin-top:6px">{% if f.stand %}Register one in <a href="/station/cameras" style="color:#fff;text-decoration:underline">Manage Cameras</a>, or upload footage below.{% else %}The flight feed has not assigned a stand yet.{% endif %}</div></div></div>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="card-h"><div><h2>Footage source</h2><div class="muted">Either option runs the same evidence analysis for {{ f.flight_number }}.</div></div></div>
+        <div class="src-opts">
+          <div class="src-opt rec">
+            <div class="opt-n">Option 1</div>
+            <h3>Use Stand Camera</h3>
+            {% if c %}
+            <div class="small muted">{{ c.id }} · stand {{ c.stand }} · <b style="color:var(--ink)">{{ st.label }}</b></div>
+            <div class="btns" style="margin-top:0"><a class="btn sm" href="/station?{{ q }}&camera={{ c.id }}&probe={{ c.id }}">Test &amp; preview</a></div>
+            {% if role == 'handler' %}
+            {% if f.on_block_utc %}
+            <form method="post" action="/station/capture" data-confirm="Record {{ f.flight_number }} from {{ c.id }} and analyse it? New footage is processed by SAM 3.1 and Muse Spark (paid model calls).">
+              <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
+              <input type="hidden" name="flight_date" value="{{ f.flight_date }}">
+              <input type="hidden" name="camera_id" value="{{ c.id }}">
+              <input type="hidden" name="event" value="loading">
+              <label class="small muted">Record <input type="number" name="seconds" value="{{ (40 if c.speed_factor > 1 else ([r.window.seconds, 600] | min if r.window else 60)) | int }}" min="5" max="3600" class="secs" aria-label="Seconds to record"> s</label>
+              <button class="btn primary sm">Record &amp; Analyze</button>
+            </form>
+            <div class="muted tiny">Asks before starting. The run's clock starts at the flight's on-block time.</div>
+            {% else %}
+            <div class="muted small">Recording needs an on-block time from the flight feed.</div>
+            {% endif %}
+            {% endif %}
+            {% else %}
+            <div class="small muted">No camera registered for this stand.</div>
+            <div class="btns" style="margin-top:0"><a class="btn sm" href="/station/cameras">{{ ui.icon('gear') }} Manage Cameras</a></div>
+            {% endif %}
+          </div>
+          <div class="src-opt">
+            <div class="opt-n">Option 2</div>
+            <h3>Upload Footage</h3>
+            <div class="small muted">MP4 or MOV from a VMS export or a phone, or a saved demo scenario. The flight{{ ' and camera' if c }} carry over.</div>
+            {% if role == 'handler' %}<div class="btns"><a class="btn primary sm" href="/upload?{{ q }}{% if c %}&camera={{ c.id }}{% endif %}">{{ ui.icon('upload') }} Upload Footage</a></div>{% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><div><h2>Footage on file</h2><div class="muted">Analyses already made for {{ f.flight_number }}</div></div></div>
+        {% if r.case %}
+        <div class="table-wrap"><table class="tbl compact">
+          <thead><tr><th>Analysed</th><th>Source · time</th><th>Evidence</th><th>Review</th></tr></thead>
+          <tbody>{% for x in r.case.runs %}
+          <tr class="row-link" data-href="/runs/{{ x.run_id }}"><td class="small nowrap"><a href="/runs/{{ x.run_id }}">{{ x.created | day }}</a><div class="muted tiny">{{ x.created | hm }} UTC</div></td>
+            <td class="small">{{ x.footage.label }}{% if x.duration_s %} · {{ x.duration_s | round(0) | int }} s{% endif %}<div class="tiny {{ 't-ok' if x.synced else 't-warn' }}">{{ 'Synchronized' if x.synced else 'Not synchronized' }}</div></td>
+            <td>{{ ui.evidence_pill(x.evidence_status) }}</td>
+            <td>{{ ui.review_pill(x.review.state) }}</td></tr>
+          {% endfor %}</tbody>
+        </table></div>
+        {% else %}<div class="muted small">No footage analysed for this flight yet.</div>{% endif %}
+        <div class="muted tiny" style="margin-top:10px">Fetching archived recordings from a video management system (VMS) is not connected. It is a possible future integration.</div>
+      </section>
     </div>
-  </a>
-  {% endfor %}
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 
-<div class="grid-2">
-  <section class="card">
-    <h2>Flights on stands <span class="muted small">AODB-style feed · capture windows = on-block → off-block</span></h2>
-    {% if windows %}
-    <table class="disc">
-      <thead><tr><th>Flight</th><th>Stand · camera</th><th>On-block → off-block (UTC)</th><th>Window</th><th>Claim on file</th><th></th></tr></thead>
-      <tbody>
-      {% for w in windows %}
-      <tr>
-        <td class="strong">{{ w.flight.flight_number }}<div class="muted tiny">{{ w.flight.airline }} · {{ w.flight.flight_date }}{% if w.flight.registration %} · {{ w.flight.registration }}{% endif %}</div></td>
-        <td>{{ w.camera.stand }}<div class="muted tiny mono">{{ w.camera.id }}</div></td>
-        <td class="mono small">{{ w.start_utc | fmt_t }} → {{ w.end_utc | fmt_t }}</td>
-        <td>{% if w.state == 'missed' and 'demo' in feed_source %}<span class="chip warn tiny">replay</span>{% else %}<span class="chip {{ 'good' if w.state == 'due' else ('warn' if w.state == 'planned' else '') }} tiny">{{ w.state }}</span>{% endif %}<div class="muted tiny">{{ (w.seconds / 60) | round(0) | int }} min real</div></td>
-        <td>{% if claims.get(w.flight.flight_number) %}<span class="chip good tiny">yes</span>{% else %}<span class="chip tiny">not yet</span> <a class="tiny" href="/intake">intake →</a>{% endif %}</td>
-        <td>
-          <form method="post" action="/station/capture" class="inline">
-            <input type="hidden" name="flight_number" value="{{ w.flight.flight_number }}">
-            <input type="hidden" name="flight_date" value="{{ w.flight.flight_date }}">
-            <input type="hidden" name="camera_id" value="{{ w.camera.id }}">
-            <input type="hidden" name="event" value="loading">
-            <input type="number" name="seconds" value="{{ (40 if w.camera.speed_factor > 1 else (w.seconds if w.seconds < 600 else 600)) | int }}" min="5" max="3600" title="seconds to record" class="secs"> s
-            <button class="btn small-btn {{ 'primary' if w.state == 'due' else '' }}">Record now →</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    <div class="muted small">In a live deployment the capture starts by itself at on-block and stops at off-block. Here the window is replayed from the feed (synthetic) and started by hand, so the demo stays under control: the declared clip start is the feed's on-block time; the speed factor is the camera's (1.0 for a real stand camera; the demo stream loops time-lapse footage at ×6, so 40 s of stream ≈ 4 min of turnaround).</div>
-    {% else %}
-    <div class="empty small">No flight with an on-block time on a stand that has a camera.</div>
-    {% endif %}
-    {% if others %}
-    <h3>Other flights in the feed</h3>
-    <table class="disc"><tbody>
-      {% for f in others %}
-      <tr><td class="strong">{{ f.flight_number }}</td><td>{{ f.stand or '—' }}</td><td><span class="chip tiny">{{ f.status }}</span></td><td class="muted small">{% if not f.stand %}no stand yet{% elif not f.on_block_utc %}not on blocks yet{% else %}no camera registered for stand {{ f.stand }}{% endif %}</td></tr>
-      {% endfor %}
-    </tbody></table>
-    {% endif %}
-
-    <h3>Live arrivals from ADS-B <span class="muted small">OpenSky Network, anonymous API · landing times only; stands and on-block come from the AODB</span></h3>
-    <form id="adsb-form" class="inline"><input name="icao" value="VOBL" class="secs" style="width:80px" title="ICAO airport"> <button class="btn small-btn" type="submit">Fetch last 6 h</button> <span id="adsb-status" class="muted small"></span></form>
-    <div id="adsb-out"></div>
-  </section>
-
-  <section class="card">
-    <h2>Stand cameras</h2>
-    {% if cameras %}
-    <table class="disc">
-      <thead><tr><th>Camera</th><th>Stand</th><th>Stream</th><th>View · speed</th><th></th></tr></thead>
-      <tbody>
-      {% for c in cameras %}
-      <tr>
-        <td class="strong">{{ c.id }}{% if c.note %}<div class="muted tiny">{{ c.note }}</div>{% endif %}</td>
-        <td>{{ c.station }} {{ c.stand }}</td>
-        <td class="mono tiny">{{ c.url }}</td>
-        <td class="small">{{ c.view }} · ×{{ c.speed_factor }}</td>
-        <td><a class="btn small-btn" href="/station?probe={{ c.id }}">Test stream</a>
-          {% if probes.get(c.id) %}{% set pr = probes[c.id] %}<div class="tiny {{ 'good-text' if pr.ok else 'bad-text' }}">{% if pr.ok %}OK · {{ pr.codec }} {{ pr.width }}×{{ pr.height }} @ {{ pr.fps }} fps{% else %}{{ pr.error }}{% endif %}</div>{% endif %}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% else %}<div class="empty small">No cameras registered.</div>{% endif %}
-    <details class="manual">
-      <summary>Add or replace a camera</summary>
-      <form method="post" action="/station/cameras">
-        <div class="grid-2 tight">
-          <label class="field">Camera id <input name="id" placeholder="stand-d14-01" required></label>
-          <label class="field">Stand <input name="stand" placeholder="D14" required></label>
-          <label class="field">Station (IATA) <input name="station" value="BLR"></label>
-          <label class="field">Camera view <select name="view">{% for v in views %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></label>
-          <label class="field">Speed factor <input type="number" name="speed_factor" value="1.0" step="0.1" min="0.1"></label>
-          <label class="field">Speed source <select name="speed_source"><option value="declared_by_uploader">declared (real camera)</option><option value="estimated_from_vehicle_motion">estimated from vehicle motion</option></select></label>
-        </div>
-        <label class="field">Stream URL <span class="muted small">(RTSP from the VMS / ONVIF camera, or HTTP/HLS; credentials in the URL are never shown)</span><input name="url" placeholder="rtsp://user:pass@10.0.0.5:554/stand-d14" required></label>
-        <label class="field">Note <input name="note" placeholder="VMS export profile, lens, anything the operator should know"></label>
-        <div class="btns"><button class="btn primary" type="submit">Save camera</button></div>
-      </form>
-    </details>
-    <div class="muted small">Integration path: cameras are pulled from the VMS (Milestone, Genetec, Axis…) by RTSP/ONVIF; the flight feed comes from the AODB or the handler's ops system; the same two inputs can be pushed to <code>POST /api/upload</code> by any system. The plan is readable at <code>/api/station/plan</code>.</div>
-  </section>
-</div>
+<section class="card section-gap" id="arrivals">
+  <div class="card-h">
+    <div><h2>Arrivals &amp; Flight Movements</h2><div class="muted">ADS-B landings from the OpenSky Network. This is not a gate or stand feed.</div></div>
+    <form id="adsb-form" class="btns" style="margin:0">
+      <input name="icao" value="VOBL" class="secs" style="width:92px" title="ICAO airport code" aria-label="ICAO airport code">
+      <select name="hours" class="secs" style="width:auto" aria-label="Look-back window"><option value="2">last 2 h</option><option value="6" selected>last 6 h</option><option value="12">last 12 h</option></select>
+      <button class="btn sm" type="submit">Fetch</button>
+    </form>
+  </div>
+  <div class="feed-state" id="adsb-status"><span class="pill plain">Not fetched</span><span>Landing time is not on-block time. Stand and on-block times come from the airport flight feed.</span></div>
+  <div id="adsb-out"></div>
+</section>
+<script type="application/json" id="feed-json">{{ feed | tojson }}</script>
 {% endblock %}
 {% block scripts %}
 <script>
 (function () {
   const f = document.getElementById('adsb-form'), out = document.getElementById('adsb-out'), st = document.getElementById('adsb-status');
+  const feed = JSON.parse(document.getElementById('feed-json').textContent || '{}');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const clock = d => d.toISOString().slice(11, 19);
   f.addEventListener('submit', async e => {
-    e.preventDefault(); st.textContent = 'fetching…'; out.innerHTML = '';
+    e.preventDefault();
+    st.innerHTML = '<span class="pill info">Fetching</span><span>Asking OpenSky for ' + esc(f.icao.value.toUpperCase()) + '…</span>'; out.innerHTML = '';
+    let j;
     try {
-      const r = await fetch('/api/station/arrivals?icao=' + encodeURIComponent(f.icao.value));
-      const j = await r.json();
-      if (!j.ok) { st.textContent = j.error; return; }
-      st.textContent = j.note ? j.note : (j.flights.length + ' arrivals at ' + j.airport + ' (' + j.source + ')');
-      if (!j.flights.length) return;
-      let h = '<table class="disc"><thead><tr><th>Callsign</th><th>Landed (UTC)</th><th>Stand</th><th>On-block</th></tr></thead><tbody>';
-      j.flights.slice(0, 12).forEach(x => { h += `<tr><td class="mono">${x.flight_number}</td><td class="mono small">${(x.landed_utc||'').slice(11,19)}Z</td><td class="muted small">from AODB</td><td class="muted small">from AODB</td></tr>`; });
-      out.innerHTML = h + '</tbody></table>';
-    } catch (err) { st.textContent = 'request failed: ' + err; }
+      const r = await fetch('/api/station/arrivals?icao=' + encodeURIComponent(f.icao.value) + '&hours=' + encodeURIComponent(f.hours.value));
+      j = await r.json();
+    } catch (err) { st.innerHTML = '<span class="pill bad">Unavailable</span><span>Request failed: ' + esc(err) + '</span>'; return; }
+    const fetched = clock(new Date());
+    if (!j.ok) {
+      const limited = /429/.test(j.error || '');
+      st.innerHTML = '<span class="pill ' + (limited ? 'warn' : 'bad') + '">' + (limited ? 'Rate-limited' : 'External feed unavailable') + '</span><span>' + esc(limited ? 'OpenSky is limiting anonymous requests; try again later.' : j.error) + ' · ' + fetched + ' UTC</span>';
+      return;
+    }
+    if (!j.flights.length) {
+      st.innerHTML = '<span class="pill plain">No data</span><span>' + esc(j.note || 'No arrivals in this window.') + ' · fetched ' + fetched + ' UTC</span>';
+      return;
+    }
+    const latest = j.flights.map(x => x.landed_utc).filter(Boolean).sort().pop();
+    const ageMin = latest ? Math.round((Date.now() - Date.parse(latest)) / 60000) : null;
+    const stale = ageMin != null && ageMin > 60;
+    st.innerHTML = '<span class="pill ' + (stale ? 'warn' : 'good') + '">' + (stale ? 'Delayed data' : 'Fetched') + '</span><span>' + j.flights.length + ' arrivals at ' + esc(j.airport) +
+      ' · fetched ' + fetched + ' UTC' + (latest ? ' · latest landing ' + esc(latest.slice(11, 16)) + ' UTC' + (ageMin != null ? ' (' + ageMin + ' min ago)' : '') : '') + ' · anonymous OpenSky data is delayed</span>';
+    let h = '<div class="table-wrap" style="margin-top:12px"><table class="tbl arr-tbl"><thead><tr><th>Callsign</th><th>Airport</th><th>Landed (UTC)</th><th>Source</th><th>Stand</th><th>Camera</th><th></th></tr></thead><tbody>';
+    j.flights.slice(0, 25).forEach(x => {
+      const m = feed[x.flight_number];  // exact match only; callsigns are not mapped to flight numbers
+      h += '<tr><td class="mono">' + esc(x.flight_number) + '</td><td>' + esc(x.station) + '</td><td class="mono small">' + esc((x.landed_utc || '').slice(11, 19)) + '</td><td class="small">ADS-B · OpenSky</td>' +
+        (m ? '<td>' + esc(m.stand || '—') + ' <span class="muted tiny">flight feed</span></td><td class="mono small">' + esc(m.camera || '—') + '</td><td><a class="btn sm" href="/station?flight=' + encodeURIComponent(x.flight_number) + '&date=' + encodeURIComponent(m.date) + '" data-pick="' + esc(m.key) + '">Select</a></td>'
+           : '<td class="muted small" colspan="2">Not in flight feed</td><td></td>') + '</tr>';
+    });
+    out.innerHTML = h + '</tbody></table></div>' + (j.flights.length > 25 ? '<div class="muted tiny" style="margin-top:6px">Showing 25 of ' + j.flights.length + '.</div>' : '');
+    out.querySelectorAll('[data-pick]').forEach(a => a.addEventListener('click', ev => {
+      if (window.tpShowFlight && window.tpShowFlight(a.dataset.pick, a.href)) { ev.preventDefault(); window.scrollTo({top: 0, behavior: 'smooth'}); }
+    }));
   });
 })();
 </script>

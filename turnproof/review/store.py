@@ -53,6 +53,10 @@ class RunStore:
         p = self.run_dir(run_id) / "occupancy.json"
         return json.loads(p.read_text()) if p.exists() else None
 
+    def profile(self, run_id: str) -> dict | None:
+        p = self.run_dir(run_id) / "profile.json"
+        return json.loads(p.read_text()) if p.exists() else None
+
     def events(self, run_id: str) -> list[dict]:
         p = self.run_dir(run_id) / "eventlog.jsonl"
         if not p.exists():

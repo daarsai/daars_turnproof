@@ -1,148 +1,142 @@
 {% extends "base.html" %}
-{% block title %}{{ packet.packet_id }}{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ packet.flight.number }} · Evidence Packet{% endblock %}
+{% block crumb %}<a href="{{ '/' if role == 'airline' else '/packets' }}">{{ 'Received Cases' if role == 'airline' else 'Sent Packets' }}</a> › <b>{{ packet.flight.number }}</b> <span class="faint mono">{{ packet.packet_id }}</span>{% endblock %}
 {% block content %}
 {% set pc = packet.proposed_claim %}
 {% set c = packet.airline_claim %}
-<div class="crumbs"><a href="/">{{ 'Packets' if role == 'airline' else 'Runs' }}</a> › {{ packet.packet_id }}{% if role == 'handler' %} · <a href="/runs/{{ run_id }}">back to the run</a>{% endif %}</div>
+{% set rcc = packet.models.spark.rule_claim_check if packet.models.spark else none %}
 
-<section class="run-head">
+<section class="ph">
   <div>
-    <h1>{{ packet.flight.number }} · {{ packet.flight.airline }} · {{ packet.flight.date }}</h1>
-    <div class="muted">{{ packet.station }} · stand {{ packet.stand }} · handler {{ packet.parties.handler }} · packet <span class="mono">{{ packet.packet_id }}</span> · schema {{ packet.schema_version }}</div>
+    <div class="eyebrow">Evidence packet · {{ 'received from ' ~ packet.parties.handler if role == 'airline' else 'sent to ' ~ packet.flight.airline }}</div>
+    <h1>{{ packet.flight.number }} · {{ packet.flight.airline }}</h1>
+    <div class="sub">{{ packet.station }} · Stand {{ packet.stand }} · {{ (packet.flight.date | day) or packet.flight.date }} · Packet <span class="mono">{{ packet.packet_id }}</span></div>
   </div>
-  <div class="chips">
-    <span class="state big s-{{ review.state }}">{{ review.state }}</span>
-    <a class="btn" href="/packets/{{ packet.packet_id }}.json">Download JSON</a>
+  <div class="ph-actions">{{ ui.review_pill(review.state, 'big') }}
     <a class="btn" href="/packets/{{ packet.packet_id }}.pdf">Download PDF</a>
+    <a class="btn" href="/packets/{{ packet.packet_id }}.json">Download JSON</a>
     <a class="btn" href="/packets/{{ packet.packet_id }}/frames.zip">Frames zip</a>
   </div>
 </section>
 
-{% if packet.time_sync.status != 'declared' %}
-<div class="banner warn"><b>Unsynced footage.</b> {{ packet.time_sync.method }}</div>
-{% endif %}
 {% if review.state in ('UNDER_REVIEW','CANDIDATE','CONFIRMED') and role == 'airline' %}
-<div class="banner"><b>Preview.</b> The handler has not sent this packet yet; in production it would not be visible to the airline until SENT.</div>
+<div class="banner neutral"><b>Preview:</b> not yet sent by the handler.</div>
+{% endif %}
+{% if packet.time_sync.status != 'declared' %}
+<div class="banner warn"><b>Time not synchronized.</b> {{ packet.time_sync.method }}</div>
 {% endif %}
 
-<div class="grid-2">
-  <section class="card">
-    <h2>Claim vs video</h2>
-    <div class="compare">
-      <div class="side"><div class="muted small">airline claim ({{ c.source }})</div><div class="num">{{ c.minutes }} <span>min</span></div><div>delay code <b>{{ c.delay_code }}</b></div></div>
-      <div class="side accent"><div class="muted small">supported by video</div><div class="num">{% if pc.minutes_supported_by_video is none %}n/a{% else %}{{ pc.minutes_supported_by_video }} <span>min</span>{% endif %}</div><div>code family <b>{{ pc.delay_code_family }}</b></div></div>
-    </div>
-    <p class="reason">{{ pc.basis }}</p>
-    <h3>Milestones from video</h3>
-    <table class="disc">
-      <thead><tr><th>Milestone</th><th>Video (UTC)</th><th>Handler log</th><th>Video − log</th><th>Conf.</th></tr></thead>
-      <tbody>
-      {% for r in packet.discrepancies %}
-      {% set m = (packet.milestones | selectattr('name', 'equalto', r.milestone) | list | first) %}
-      <tr>
-        <td class="strong">{{ r.milestone }}{% if m and 'present_at_clip_start' in m.method %}<div class="warn-text tiny">present at clip start</div>{% endif %}</td>
-        <td class="mono">{{ r.video_utc | fmt_t }}</td>
-        <td class="mono">{{ r.handler_log_utc | fmt_t if r.handler_log_utc else '—' }}</td>
-        <td class="mono">{% if r.video_minus_log_min is not none %}{{ '%+.1f' % r.video_minus_log_min }} min{% else %}—{% endif %}</td>
-        <td class="mono">{{ '%.2f' % m.confidence if m else '' }}</td>
-      </tr>
-      {% if r.note %}<tr class="noterow"><td></td><td colspan="4" class="small muted">{{ r.note }}</td></tr>{% endif %}
-      {% endfor %}
-      </tbody>
-    </table>
-    <div class="muted small">Time sync: {{ packet.time_sync.method }}</div>
+{{ ui.kpis(fig, claim, exposure) }}
+{{ ui.outcome_box(outcome) }}
 
-    {% if packet.observed_facts %}
-    <h3>Keyframe facts <span class="muted small">Muse Spark 1.3 · flags, never decides</span></h3>
-    <ul class="facts">{% for f in packet.observed_facts %}<li>{{ f.text }} <span class="muted mono tiny">{{ f.frames | join(', ') }}</span></li>{% endfor %}</ul>
-    {% set rcc = packet.models.spark.rule_claim_check %}
-    {% if rcc %}<div class="small">Rule claim “{{ rcc.claim }}”: {% if rcc.agree %}<span class="chip good">agrees</span>{% else %}<span class="chip bad">disagrees</span>{% endif %} <span class="muted">{{ rcc.reason }}</span></div>{% endif %}
-    {% endif %}
-  </section>
+<div class="grid">
+  <div class="c-8 stack">
+    <section class="card accent">
+      <div class="card-h"><div><h2>Evidence</h2><div class="muted">Redacted frames · each frame's SHA-256 is in the signed packet</div></div></div>
+      {{ ui.frame_viewer(frames, first_frame, 'tchart', packet.camera_id or '', s.view) }}
+      <div class="legend"><span><i class="sw dashed"></i>aircraft</span><span><i class="sw orange"></i>hold zone</span><span><i class="sw green"></i>equipment in zone</span><span><i class="sw grey"></i>other vehicle</span></div>
+    </section>
 
-  <section class="card">
-    <h2>Integrity <span class="muted small">check it yourself</span></h2>
-    <table class="kv">
-      <tr><th>Packet hash</th><td class="mono small break">{{ packet.packet_sha256 }}</td></tr>
-      <tr><th>Signature</th><td class="mono small">{{ packet.signature.alg }} · key <b>{{ packet.signature.key_id }}</b></td></tr>
-      <tr><th>Event-log head</th><td class="mono small break">{{ packet.chain.event_log_head_sha256 }}</td></tr>
-      <tr><th>Clip file</th><td class="mono small break">sha256 {{ packet.source.file_sha256 }}</td></tr>
-    </table>
-    <div class="btns">
-      <button class="btn primary" id="btn-verify">Verify packet now</button>
-      <button class="btn" id="btn-tamper" title="copies the frames, changes one pixel, verifies the copy">Tamper test</button>
-    </div>
-    <pre id="verify-out" class="term" hidden></pre>
-    <div class="muted small">Or on the <a href="/verify">public verify page</a> with the JSON and the frames zip. Same check from any machine: <code>python verify_packet.py {{ packet.packet_id }}.json --frames display/ --log eventlog.jsonl --pub turnproof-demo-2026.pub</code> — standard library + one crypto package, no API key, no account.</div>
+    <section class="card">
+      <div class="card-h"><div><h2>Turnaround Timeline</h2><div class="muted">From the packet's milestones and claim; on/off-block from the handler's flight feed (not part of the signed packet)</div></div></div>
+      {{ ui.turnaround_chart(chart) }}
+      <h3>Milestones from video</h3>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Milestone</th><th>Video (UTC)</th><th>Handler log</th><th>Difference</th><th>Confidence</th></tr></thead>
+        <tbody>
+        {% for r in packet.discrepancies %}
+        {% set m = (packet.milestones | selectattr('name', 'equalto', r.milestone) | list | first) %}
+        <tr><td><b>{{ r.milestone | ms_label }}</b>{% if m and 'present_at_clip_start' in m.method %}<div class="muted tiny">already present at clip start (upper bound)</div>{% endif %}{% if r.note %}<div class="muted tiny">{{ r.note }}</div>{% endif %}</td>
+          <td class="mono">{{ (r.video_utc | hm) if r.video_utc else '—' }}</td>
+          <td class="mono">{{ (r.handler_log_utc | hm) if r.handler_log_utc else '—' }}</td>
+          <td class="mono">{% if r.video_minus_log_min is not none %}{{ '%+.1f' % r.video_minus_log_min }} min{% else %}—{% endif %}</td>
+          <td>{{ '%.2f' % m.confidence if m else '' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% if packet.observed_facts %}
+      <h3>AI observations <span class="muted small">Muse Spark · flags, never decides</span></h3>
+      {% if rcc %}<div>{% if rcc.agree %}<span class="pill good">agrees with the rule</span>{% else %}<span class="pill bad">disagrees with the rule</span>{% endif %} <span class="muted small">{{ rcc.reason }}</span></div>{% endif %}
+      <ul class="facts">{% for f in packet.observed_facts %}<li>{{ f.text }}</li>{% endfor %}</ul>
+      {% endif %}
+    </section>
+  </div>
 
-    <h3>Handler's decision</h3>
-    {% if packet.review.decision != 'pending' %}
-    <div class="small"><span class="chip good">{{ packet.review.decision }}</span> by {{ packet.review.operator }} at <span class="mono">{{ packet.review.t_utc | fmt_t if packet.review.t_utc else '' }}</span>{% if packet.review.note %} — <i>{{ packet.review.note }}</i>{% endif %}</div>
-    {% else %}<div class="muted small">not yet reviewed (draft packet)</div>{% endif %}
-    {% if packet.human_statement %}
-    <div class="statement"><div class="small">Operator statement {% if packet.human_statement.source == 'spoken' %}<span class="chip good tiny">spoken · {{ packet.human_statement.model }}</span> <span class="muted tiny mono">audio sha256 {{ packet.human_statement.audio_sha256 | short(12) }}…</span>{% else %}<span class="chip tiny">typed</span>{% endif %}</div>
-    <p class="reason">“{{ packet.human_statement.text }}”</p></div>
-    {% endif %}
-    {% if packet.chain.prev_packet_sha256 %}<div class="muted small">This is a re-issued version: previous version sha256 <span class="mono">{{ packet.chain.prev_packet_sha256 | short(16) }}…</span> (kept alongside; each version is signed).</div>{% endif %}
+  <div class="c-4 stack">
+    <section class="card">
+      <div class="card-h"><h2>Claim vs Evidence</h2></div>
+      <div class="cmp">
+        <div class="cmp-row claim"><span class="k">{{ 'You claimed' if role == 'airline' else 'Airline claimed' }}</span><span class="v big">{{ c.minutes }} min · code {{ c.delay_code }}</span></div>
+        <div class="cmp-row claim"><span class="k">Claim interval</span><span class="v">{% if fig.window %}{{ fig.window[0] }}–{{ fig.window[1] }} UTC{% else %}—{% endif %}</span></div>
+        <div class="cmp-row {{ 'hl' if pc.minutes_supported_by_video is not none }}"><span class="k">Handler's evidence supports</span><span class="v big">{{ ui.minutes(pc.minutes_supported_by_video, fig.supported_why) }}</span></div>
+        <div class="cmp-row"><span class="k">Delay-code family</span><span class="v">{{ pc.delay_code_family }}</span></div>
+      </div>
+      <div class="quote">{{ pc.basis | readable }}</div>
+      {% if limitations %}<h3>Limitations of this evidence</h3><ul class="limits">{% for l in limitations %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
+    </section>
 
-    <h3>{{ 'Your decision' if role == 'airline' else 'Airline decision' }}</h3>
-    {% if actions %}
-    <form method="post" action="/packets/{{ packet.packet_id }}/action" class="decide">
-      <textarea name="note" rows="2" placeholder="Note (required to dispute or resolve)"></textarea>
-      <div class="btns">{% for a in actions %}<button class="btn {{ 'primary' if a in ('acknowledge','send','confirm') else ('danger' if a == 'dispute' else '') }}" name="action" value="{{ a }}">{{ a | capitalize }}{% if a == 'send' %} to airline{% endif %}</button>{% endfor %}</div>
-    </form>
-    {% else %}
-    <div class="muted small">{% if review.state == 'SENT' and role == 'handler' %}Waiting for the airline reviewer.{% elif review.state in ('ACKNOWLEDGED','DISPUTED','RESOLVED') %}Decision recorded.{% else %}No action for your role in state {{ review.state }}.{% endif %}</div>
-    {% endif %}
-    {% if review.history %}
-    <ul class="history">{% for h in review.history %}<li><span class="mono small">{{ h.t_utc | fmt_t if h.t_utc else '' }}</span> <b>{{ h.actor }}</b> {{ h.action }} → {{ h.to }}{% if h.note %} — <i>{{ h.note }}</i>{% endif %}</li>{% endfor %}</ul>
-    {% endif %}
-  </section>
+    <section class="card">
+      <div class="card-h"><h2>Handler's decision</h2></div>
+      {% if packet.review.decision != 'pending' %}
+      <div><span class="pill good">{{ packet.review.decision | capitalize }}</span> <span class="muted small">{{ packet.review.operator | replace('_', ' ') }} · {{ packet.review.t_utc | day }} {{ packet.review.t_utc | hm }}</span></div>
+      {% if packet.review.note %}<div class="quote">{{ packet.review.note }}</div>{% endif %}
+      {% else %}<div class="muted small">Not yet reviewed (draft packet).</div>{% endif %}
+      {% if packet.human_statement %}
+      <h3>Operator statement</h3>
+      <div class="quote">“{{ packet.human_statement.text }}”<div class="tiny muted" style="margin-top:4px">{% if packet.human_statement.source == 'spoken' %}Spoken · transcribed by {{ packet.human_statement.model }} · audio sha256 {{ packet.human_statement.audio_sha256 | short(12) }}…{% else %}Typed{% endif %}</div></div>
+      {% endif %}
+      {% if packet.chain.prev_packet_sha256 %}<div class="muted tiny" style="margin-top:8px">Re-issued version; previous version sha256 <span class="mono">{{ packet.chain.prev_packet_sha256 | short(16) }}…</span> is kept and was signed too.</div>{% endif %}
+    </section>
+
+    <section class="card decision">
+      <div class="state-line"><h2>{{ 'Your response' if role == 'airline' else 'Airline Response' }}</h2>{{ ui.review_pill(review.state) }}</div>
+      {% if actions %}
+      <form method="post" action="/packets/{{ packet.packet_id }}/action">
+        <textarea class="note" name="note" rows="3" placeholder="Note (required to dispute or resolve)"></textarea>
+        <div class="btns">{% for a in actions %}<button class="btn {{ 'primary' if a in ('acknowledge','send','confirm') else ('danger' if a == 'dispute' else '') }}" name="action" value="{{ a }}">{{ {'send': 'Send to airline', 'acknowledge': 'Acknowledge', 'dispute': 'Dispute', 'resolve': 'Resolve', 'confirm': 'Confirm', 'reject': 'Reject', 'correct': 'Correct'}.get(a, a | capitalize) }}</button>{% endfor %}</div>
+      </form>
+      {% else %}
+      <div class="muted small">{% if review.state == 'SENT' and role == 'handler' %}Waiting for the airline's response.{% elif review.state in ('ACKNOWLEDGED','DISPUTED','RESOLVED') %}Response recorded.{% else %}No action available in your workspace for this case.{% endif %}</div>
+      {% endif %}
+      {% if review.history %}
+      <ul class="history" style="margin-top:12px">{% for h in review.history %}<li><b>{{ review_label(h.to).label }}</b> · {{ h.actor | replace('_', ' ') }} <span class="muted mono tiny">{{ h.t_utc | day }} {{ h.t_utc | hm }}</span>{% if h.note %}<div class="muted">“{{ h.note }}”</div>{% endif %}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if role == 'airline' and review.state == 'SENT' %}<div class="next"><b>Next:</b> verify the packet below, then <b>Acknowledge</b> or <b>Dispute</b> with a reason.</div>
+      {% elif review.state in ('ACKNOWLEDGED', 'DISPUTED') %}<div class="next">The response was re-signed into the packet and delivered back. {% if review.state == 'DISPUTED' %}Either side can <b>Resolve</b> with a note.{% endif %}</div>{% endif %}
+      {% if role == 'handler' and review.state in ('SENT','ACKNOWLEDGED','DISPUTED','RESOLVED') %}<div class="btns"><a class="btn sm" href="/role/airline?next=/packets/{{ packet.packet_id }}">View as Airline →</a></div>{% endif %}
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Verification</h2></div>
+      <div class="muted small">The standalone verifier checks this packet, its redacted frames and its event log{{ '; it runs when the page opens' if role == 'airline' }}.</div>
+      <div class="btns"><button class="btn dark" type="button" data-verify="{{ packet.packet_id }}" data-target="trust-pk" {{ 'data-autoverify' if role == 'airline' }}>{{ 'Verify again' if role == 'airline' else 'Verify packet' }}</button><button class="btn" type="button" data-tamper="{{ packet.packet_id }}" data-target="trust-pk" title="copies the frames, changes one pixel, verifies the copy">Tamper test</button></div>
+      <div id="trust-pk" class="section-gap" hidden></div>
+      <div class="btns"><a class="btn ghost sm" href="/verify?packet={{ packet.packet_id }}">Open in Verification →</a></div>
+    </section>
+  </div>
 </div>
 
-<section class="card">
-  <h2>Evidence frames <span class="muted small">redacted; persons blurred before display · hashes are of the redacted frames</span></h2>
-  <div class="frames">
-    {% for e in evidence %}
-    <figure class="frame">
-      <a href="{{ e.img }}" target="_blank" rel="noopener"><img src="{{ e.img }}" alt="{{ e.id }}" loading="lazy"></a>
-      <figcaption>
-        <div><b class="mono">{{ e.id }}</b> · {{ e.t_utc | fmt_t }} · frame {{ e.frame_index }}</div>
-        <div class="roles-line">{% for r in e.roles %}<span class="chip tiny">{{ r }}</span>{% endfor %}</div>
-        <div class="mono tiny muted">sha256 {{ e.sha256_redacted | short(24) }}…</div>
-      </figcaption>
-    </figure>
-    {% endfor %}
+<details class="more section-gap">
+  <summary>Technical details · hashes, signature, models</summary>
+  <div class="more-body">
+    <table class="kv">
+      <tr><th>Packet hash</th><td class="mono small break">{{ packet.packet_sha256 }}</td></tr>
+      <tr><th>Signature</th><td class="mono small">{{ packet.signature.alg }} · key {{ packet.signature.key_id }}</td></tr>
+      <tr><th>Event-log head</th><td class="mono small break">{{ packet.chain.event_log_head_sha256 }}</td></tr>
+      <tr><th>Clip file</th><td class="mono small break">sha256 {{ packet.source.file_sha256 }}</td></tr>
+      <tr><th>Time sync</th><td class="small">{{ packet.time_sync.method }}</td></tr>
+      <tr><th>Detection</th><td>{{ packet.models.sam.id }} · concepts <span class="mono">{{ packet.models.sam.prompts | join(', ') }}</span></td></tr>
+      {% if packet.models.spark %}<tr><th>Keyframe check</th><td>{{ packet.models.spark.id }} · prompt {{ packet.models.spark.prompt_version }} (sha256 {{ packet.models.spark.prompt_sha256 | short(12) }}…)</td></tr>{% endif %}
+      <tr><th>Zones config</th><td class="mono small">sha256 {{ packet.models.zones_config_sha256 | short(16) }}…</td></tr>
+      <tr><th>Schema</th><td>{{ packet.schema_version }}</td></tr>
+      <tr><th>Event log</th><td>{{ events | length }} hash-chained entries; decisions are appended, never edited.</td></tr>
+    </table>
+    <h3>Evidence frames</h3>
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Frame</th><th>UTC</th><th>Role</th><th>SHA-256 (redacted)</th></tr></thead><tbody>
+      {% for e in evidence %}<tr><td class="mono">{{ e.id }}</td><td class="mono">{{ e.t_utc or '—' }}</td><td class="small">{{ e.roles | join(', ') }}</td><td class="mono tiny break">{{ e.sha256_redacted }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="muted small" style="margin-top:10px">Verify anywhere: <code>python verify_packet.py {{ packet.packet_id }}.json --frames display/ --log eventlog.jsonl</code></div>
   </div>
-</section>
-
-<section class="card">
-  <h2>Models <span class="muted small">recorded in the packet</span></h2>
-  <table class="kv">
-    <tr><th>Detection</th><td>{{ packet.models.sam.id }} · concepts <span class="mono">{{ packet.models.sam.prompts | join(', ') }}</span></td></tr>
-    <tr><th>Keyframe check</th><td>{{ packet.models.spark.id }} · prompt {{ packet.models.spark.prompt_version }} (sha256 {{ packet.models.spark.prompt_sha256 | short(12) }}…) · effort {{ packet.models.spark.reasoning_effort }}</td></tr>
-    <tr><th>Zones config</th><td class="mono small">sha256 {{ packet.models.zones_config_sha256 | short(16) }}…</td></tr>
-    <tr><th>Event log</th><td class="small">{{ events | length }} entries, hash-chained; decisions above are appended as new entries, never edited.</td></tr>
-  </table>
-</section>
-{% endblock %}
-
-{% block scripts %}
-<script>
-(function () {
-  const out = document.getElementById('verify-out');
-  async function call(url, label) {
-    out.hidden = false; out.textContent = label + ' …'; out.className = 'term';
-    try {
-      const r = await fetch(url, {method: 'POST'});
-      const j = await r.json();
-      const good = (j.ok === true) || (j.tamper_detected === true);
-      out.textContent = (j.command ? '$ python ' + j.command + '\n\n' : '') + j.output + '\nexit code ' + j.exit_code;
-      out.className = 'term ' + (good ? 'ok' : 'bad');
-    } catch (e) { out.textContent = 'request failed: ' + e; out.className = 'term bad'; }
-  }
-  document.getElementById('btn-verify').addEventListener('click', () => call('/api/packets/{{ packet.packet_id }}/verify', 'verifying'));
-  document.getElementById('btn-tamper').addEventListener('click', () => call('/api/packets/{{ packet.packet_id }}/tamper', 'tampering a copy and verifying'));
-})();
-</script>
+</details>
 {% endblock %}

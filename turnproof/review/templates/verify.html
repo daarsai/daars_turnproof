@@ -1,37 +1,70 @@
 {% extends "base.html" %}
-{% block title %}Verify a packet{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}Verification{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/">Home</a> › Verify a packet</div>
-<section class="run-head">
-  <div>
-    <h1>Verify a packet</h1>
-    <div class="muted">Anyone can check a TurnProof packet: the airline, an auditor, a judge. Drop the packet JSON; add the frames zip and the event log to check the frame hashes and the chain too. The page runs the same <code>verify_packet.py</code> you can download from the repository and run yourself — no account, no API key, no trust in us.</div>
-  </div>
+<section class="ph">
+  <div><div class="eyebrow">Verification</div><h1>Verify an evidence packet</h1>
+  <div class="sub">Anyone can check a TurnProof packet: the signature, the packet contents, every evidence frame and the decision log. No account needed.</div></div>
 </section>
-<div class="grid-2">
-  <section class="card">
-    <h2>Files</h2>
+
+{% if packets %}
+<section class="card accent">
+  <div class="card-h">
+    <div><h2>Trust summary</h2><div class="muted">Choose a packet{{ ' you received' if role == 'airline' else '' }} and run the seven checks on it.</div></div>
+    <form method="get" action="/verify" class="ph-actions">
+      <select name="packet" class="input" style="margin:0;min-width:280px" onchange="this.form.submit()" aria-label="Packet">
+        <option value="">Choose a packet…</option>
+        {% for p in packets %}<option value="{{ p.packet_id }}" {% if selected and selected.packet_id == p.packet_id %}selected{% endif %}>{{ p.meta.flight_number }} · {{ p.packet_id }} · {{ review_label(p.review.state).label }}</option>{% endfor %}
+      </select><noscript><button class="btn sm">Show</button></noscript>
+    </form>
+  </div>
+  {% if selected %}
+  <div class="state-line"><div><span class="flight">{{ selected.meta.flight_number }}</span> <span class="muted">· {{ selected.meta.airline }} · stand {{ selected.meta.stand }} · <span class="mono">{{ selected.packet_id }}</span></span></div>{{ ui.review_pill(selected.review.state) }}</div>
+  <div id="trust-v">
+    <div class="trust">
+      <div class="t overall idle"><div class="l">Overall result</div><div class="v">Not run yet</div></div>
+      <div class="t idle"><div class="l">Packet integrity</div><div class="v">Not checked</div></div>
+      <div class="t idle"><div class="l">Digital signature</div><div class="v">Not checked</div></div>
+      <div class="t idle"><div class="l">Frame integrity</div><div class="v">Not checked</div></div>
+      <div class="t idle"><div class="l">Event log integrity</div><div class="v">Not checked</div></div>
+    </div>
+  </div>
+  <div class="btns"><button class="btn dark lg" type="button" data-verify="{{ selected.packet_id }}" data-target="trust-v">Run the 7 checks</button><button class="btn" type="button" data-tamper="{{ selected.packet_id }}" data-target="trust-v">Tamper test</button><a class="btn ghost" href="/packets/{{ selected.packet_id }}">Open the evidence →</a></div>
+  {% else %}<div class="empty small">Choose a packet above.</div>{% endif %}
+</section>
+{% endif %}
+
+<div class="grid section-gap">
+  <section class="card c-5">
+    <div class="card-h"><div><h2>Verify files from elsewhere</h2><div class="muted">Same standalone verifier, on files you upload.</div></div></div>
     <form method="post" action="/verify" enctype="multipart/form-data">
-      <label class="field">Packet JSON <span class="muted small">(required)</span><input type="file" name="packet" accept=".json,application/json" required></label>
-      <label class="field">Evidence frames zip <span class="muted small">(optional — from the packet page "Frames zip"; also contains eventlog.jsonl)</span><input type="file" name="frames" accept=".zip,application/zip"></label>
-      <label class="field">Event log <span class="muted small">(optional, eventlog.jsonl; not needed if it is inside the zip — upload it here to check the chain)</span><input type="file" name="log" accept=".jsonl,.json,text/plain"></label>
-      <label class="field">Public key <span class="muted small">(optional; default: the demo key turnproof-demo-2026)</span><input type="file" name="pub" accept=".pub,.pem"></label>
-      <div class="btns"><button class="btn primary big" type="submit">Run the 7 checks</button></div>
-      <div class="muted small">Checks: schema version · required fields · no machine speculation field · SHA-256 of each redacted frame · event-log hash chain and the packet's anchor in it · packet hash over canonical JSON · Ed25519 signature.</div>
+      <label class="field">Packet JSON <span class="hint">(required)</span><input type="file" name="packet" accept=".json,application/json" required></label>
+      <label class="field">Frames zip <span class="hint">(from the packet page; needed for frame integrity)</span><input type="file" name="frames" accept=".zip,application/zip"></label>
+      <label class="field">Event log <span class="hint">(eventlog.jsonl; needed for event-log integrity)</span><input type="file" name="log" accept=".jsonl,.json,text/plain"></label>
+      <label class="field">Public key <span class="hint">(optional; default: demo key)</span><input type="file" name="pub" accept=".pub,.pem"></label>
+      <button class="btn primary" type="submit">Run the 7 checks</button>
+      <div class="muted small" style="margin-top:10px">Checks: schema · required fields · no speculation field · frame hashes · event-log chain · packet hash · Ed25519 signature.</div>
     </form>
   </section>
-  <section class="card">
-    <h2>Result</h2>
+  <section class="card c-7">
+    <div class="card-h"><h2>Result</h2></div>
     {% if result is none %}
-    <div class="empty small">No packet checked yet.</div>
+    <div class="empty small">No uploaded packet checked yet.</div>
     {% else %}
-    {% if result.summary %}<div class="small">Packet <b class="mono">{{ result.summary.packet_id }}</b> · flight {{ result.summary.flight }} · created {{ result.summary.created }} · key {{ result.summary.key }}</div>{% endif %}
-    <div class="btns">{% if result.ok %}<span class="chip good big">VERIFIED</span>{% else %}<span class="chip bad big">TAMPERED OR INVALID</span>{% endif %}
-      {% if not result.with_frames %}<span class="chip warn tiny">frame hashes skipped (no zip)</span>{% endif %}{% if not result.with_log and not result.with_frames %}<span class="chip warn tiny">chain skipped (no log)</span>{% endif %}</div>
-    <pre class="term {{ 'ok' if result.ok else 'bad' }}">$ python {{ result.command }}
+    {% set fails = result.checks | selectattr('status', 'equalto', 'FAIL') | list %}
+    {% set skips = result.checks | selectattr('status', 'equalto', 'SKIP') | list %}
+    {% if result.summary %}<div class="small" style="margin-bottom:10px">Packet <b class="mono">{{ result.summary.packet_id }}</b> · flight {{ result.summary.flight }} · key {{ result.summary.key }}</div>{% endif %}
+    <div class="btns" style="margin-top:0">
+      {% if result.ok and not skips %}<span class="pill good big">VERIFIED · all {{ result.checks | length }} checks passed</span>
+      {% elif result.ok %}<span class="pill warn big">VERIFIED · {{ skips | length }} check{{ 's' if skips | length > 1 }} not run</span>
+      {% else %}<span class="pill bad big">TAMPERED OR INVALID</span>{% endif %}
+    </div>
+    {% if skips %}<div class="banner warn" style="margin-top:10px">Not every check ran: {% for s in skips %}{{ s.name }}{{ ', ' if not loop.last }}{% endfor %}. Add the missing files for a full verification.</div>{% endif %}
+    <ul class="checks" style="margin-top:10px">{% for c in result.checks %}<li><span class="st {{ c.status }}">{{ c.status }}</span><span>{{ c.name }}{% if c.detail %} <span class="muted">— {{ c.detail }}</span>{% endif %}</span></li>{% endfor %}</ul>
+    <details class="more"><summary>Verifier output</summary><div class="more-body"><pre class="term {{ 'ok' if result.ok else 'bad' }}">$ python {{ result.command }}
 
 {{ result.output }}
-exit code {{ result.exit_code }}</pre>
+exit code {{ result.exit_code }}</pre></div></details>
     {% endif %}
   </section>
 </div>

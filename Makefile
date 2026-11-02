@@ -1,4 +1,4 @@
-.PHONY: setup keys test lint smoke-sam smoke-spark smoke-asr frames serve demo replay verify tamper metrics archive
+.PHONY: setup keys test lint smoke-sam smoke-spark smoke-asr frames serve demo replay verify tamper metrics archive reset-demo
 
 # SYS_PY is used once, to create the venv; everything else runs inside the venv.
 SYS_PY ?= python3
@@ -42,8 +42,8 @@ demo:              # make demo CLIP=clips/clip1
 replay:            # make replay RUN=<run_id>   re-run that run's clip from the cache (no API spend)
 	$(PY) -m turnproof.cli replay $(RUN)
 
-serve:             # review console -> http://localhost:8080
-	$(VENV_PY) -m uvicorn turnproof.review.app:app --host 127.0.0.1 --port 8080
+serve:             # review console -> http://localhost:8090
+	$(VENV_PY) -m uvicorn turnproof.review.app:app --host 127.0.0.1 --port 8090
 
 verify:            # make verify PACKET=data/runs/<run>/packets/<id>.json   (all 7 checks)
 	$(PY) verify_packet.py $(PACKET) --frames $(dir $(PACKET))../display --log $(dir $(PACKET))../eventlog.jsonl
@@ -56,3 +56,6 @@ metrics:           # make metrics RUN=<run_id>
 
 archive:           # make archive RUN=<run_id>   hide an old run from the console (moved to data/archive/)
 	mkdir -p data/archive && mv data/runs/$(RUN) data/archive/
+
+reset-demo:        # start the console empty: runs, claims, uploads and deliveries -> data/archive/<ts>/ (cache kept)
+	$(PY) scripts/reset_demo.py

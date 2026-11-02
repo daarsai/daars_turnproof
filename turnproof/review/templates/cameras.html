@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Manage Cameras{% endblock %}
+{% block crumb %}<a href="/station">Airport &amp; Cameras</a> › <b>Manage Cameras</b>{% endblock %}
+{% block content %}
+<section class="ph">
+  <div><div class="eyebrow">Airport &amp; Cameras</div><h1>Manage Cameras</h1>
+  <div class="sub">Register each stand camera once; flights on that stand then use it for recording.</div></div>
+  <div class="ph-actions">{% if demo_registry %}<span class="pill warn plain">Demo registry · replay streams</span>{% endif %}<a class="btn" href="/station">Back to stands</a>{% if role == 'handler' %}<a class="btn primary" href="#register">{{ ui.icon('plus') }} Register camera</a>{% endif %}</div>
+</section>
+
+<section class="card flush">
+  <div class="card-h"><div><h2>Camera registry</h2><div class="muted">{{ cameras | length }} camera{{ 's' if cameras | length != 1 }} · {{ cameras_source }}</div></div></div>
+  {% if cameras %}
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Airport · Stand</th><th>Camera</th><th>View</th><th>Source</th><th>Status</th><th>Last snapshot</th><th></th></tr></thead>
+    <tbody>
+    {% for c in cameras %}{% set st = c.state %}
+    <tr class="{{ 'sel' if probed == c.id or (edit and edit.id == c.id) }}">
+      <td><b>{{ c.station }} · {{ c.stand }}</b>{% if c.flights %}<div class="muted tiny">Flights: {{ c.flights | join(', ') }}</div>{% endif %}</td>
+      <td><b>Stand {{ c.stand }} camera</b><div class="mono tiny muted">{{ c.id }}</div></td>
+      <td class="small">{{ c.view | replace('_', ' ') }}{% if c.speed_factor != 1 %}<div class="muted tiny">×{{ '%g' % c.speed_factor }} time-lapse</div>{% endif %}</td>
+      <td class="small">{{ st.source }}</td>
+      <td><span class="pill {{ st.tone }}" title="{{ st.detail }}">{{ st.label }}</span>{% if st.probe %}<div class="muted tiny" style="max-width:260px">{{ st.detail }}</div>{% endif %}</td>
+      <td class="small">{% if st.snapshot_t %}{{ st.snapshot_t | day }} {{ st.snapshot_t | hm }} UTC{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="nowrap"><a class="btn sm" href="/station/cameras?probe={{ c.id }}">Test &amp; preview</a>{% if role == 'handler' %} <a class="btn ghost sm" href="/station/cameras?edit={{ c.id }}#register">Edit</a>{% endif %}</td>
+    </tr>
+    {% if probed == c.id %}
+    <tr class="sub-row"><td colspan="7">
+      {% if st.snapshot and st.probe and st.probe.ok %}
+      <div class="media" style="max-width:720px"><img src="{{ st.snapshot }}?v={{ st.snapshot_t }}" alt="Camera view of stand {{ c.stand }}"><div class="badge-tl"><span class="pill {{ st.tone }}">{{ 'Replay · looped recorded footage' if st.replay else 'Live' }}</span></div></div>
+      {% elif st.probe and not st.probe.ok %}<div class="banner bad" style="margin:0"><b>Offline.</b> {{ st.detail }}</div>
+      {% else %}<div class="muted small">Stream reachable, but no snapshot could be taken.</div>{% endif %}
+    </td></tr>
+    {% endif %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty" style="margin:0 18px 18px">No cameras registered yet.</div>{% endif %}
+  <div class="muted tiny" style="padding:12px 18px 16px">Status: <b>Live</b> or <b>Replay</b> = reachable when tested on this page (Replay = looped or time-lapse test stream) · <b>Offline</b> = test failed · <b>Snapshot</b> = a stored picture, connection not tested here · <b>Not tested</b>. Removing a camera needs backend support and is not offered yet.</div>
+</section>
+
+{% if role == 'handler' %}
+<section class="card section-gap" id="register">
+  <div class="card-h"><div><h2>{{ 'Edit camera ' ~ edit.id if edit else 'Register camera' }}</h2><div class="muted">{{ 'Saving replaces the camera with the same id.' if edit else 'A camera with an existing id replaces that camera.' }}</div></div>{% if edit %}<a class="btn sm" href="/station/cameras">New camera instead</a>{% endif %}</div>
+  <form method="post" action="/station/cameras">
+    <div class="fields-3">
+      <label class="field">Camera id <input name="id" placeholder="stand-d14-01" value="{{ edit.id if edit else '' }}" {{ 'readonly' if edit }} required></label>
+      <label class="field">Stand <input name="stand" placeholder="D14" value="{{ edit.stand if edit else '' }}" list="stand-list" required></label>
+      <label class="field">Airport (IATA) <input name="station" value="{{ edit.station if edit else 'BLR' }}"></label>
+      <label class="field">Camera view <select name="view">{% for v in views %}<option value="{{ v }}" {{ 'selected' if edit and edit.view == v }}>{{ v | replace('_', ' ') }}</option>{% endfor %}</select></label>
+      <label class="field">Speed factor <span class="hint">1.0 for a real camera</span><input type="number" name="speed_factor" value="{{ edit.speed_factor if edit else '1.0' }}" step="0.1" min="0.1"></label>
+      <label class="field">Speed source <select name="speed_source"><option value="declared_by_uploader" {{ 'selected' if edit and edit.speed_factor_source == 'declared_by_uploader' }}>declared (real camera)</option><option value="estimated_from_vehicle_motion" {{ 'selected' if edit and edit.speed_factor_source == 'estimated_from_vehicle_motion' }}>estimated from vehicle motion</option></select></label>
+    </div>
+    <datalist id="stand-list">{% for s in stands %}<option value="{{ s.split(' ')[1] }}">{{ s }}</option>{% endfor %}</datalist>
+    <label class="field">Stream URL <span class="hint">RTSP or HTTP · credentials are never displayed{{ ' · re-enter them if the stream needs them' if edit }}</span><input name="url" placeholder="rtsp://user:pass@10.0.0.5:554/stand-d14" value="{{ edit.url if edit else '' }}" required></label>
+    <label class="field">Note <input name="note" value="{{ edit.note if edit else '' }}" placeholder="VMS export profile, lens, anything the operator should know"></label>
+    <div class="btns"><button class="btn dark" type="submit">Save camera</button><span class="muted small">After saving, use <b>Test &amp; preview</b> to check the connection.</span></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

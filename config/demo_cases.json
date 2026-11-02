@@ -1,0 +1,53 @@
+{
+  "_note": "The three demo cases, as typed into the console (docs/DEMO_SCRIPT.md). scripts/run_demo_cases.py registers the claim and uploads the footage for each case through the running console; the decisions (confirm, send, acknowledge, dispute) are made in the console by hand. All flight, claim and log values are synthetic test data on licensed footage.",
+  "cases": [
+    {
+      "id": "A",
+      "title": "XY123 - claim not supported (no penalty)",
+      "clip": "clip1.mp4",
+      "message": "DLA\nXY123/30OCT VTABC BLR\nSTD 1845Z ATD 1854Z\nDLA/32/0009 LOADING - HANDLER\nSI LOADING EQUIPMENT STILL AT FWD HOLD AT STD, STAND D14",
+      "message_type": "DLA",
+      "flight": {"flight_number": "XY123", "flight_date": "2026-10-30", "airline": "XY Airways", "station": "BLR",
+                 "stand": "D14", "camera_id": "stand-d14-01", "handler": "Handler Co"},
+      "claim": {"delay_code": "32", "minutes": 9, "window_start": "2026-10-30T18:45:00", "window_end": "2026-10-30T18:54:00"},
+      "log": {"log_docked": "2026-10-30T18:20:00", "log_complete": "2026-10-30T18:41:00", "log_door": "2026-10-30T18:42:00"},
+      "contract": {"sla_rate": 40, "currency": "EUR"},
+      "upload": {"event": "loading", "view": "front_quarter", "reference_start": "2026-10-30T18:38:00",
+                 "speed_factor": 6.0, "speed_source": "estimated_from_vehicle_motion", "use_spark": true},
+      "expected": {"loading_complete_utc": "18:41:30", "supported_minutes": 0, "outcome": "Claim not supported by video",
+                   "money": "EUR 0 supported, EUR 360 not supported"}
+    },
+    {
+      "id": "B",
+      "title": "XY456 - claim partly supported (penalty stands for 4 of 12 min)",
+      "clip": "clip1.mp4",
+      "message": "MVT\nXY456/30.VTDEF.BLR\nAD2007/2018 EA2135 DEL\nDL32/0012\nSI STD 1955Z - LATE LOADING STAND D16",
+      "message_type": "MVT",
+      "flight": {"flight_number": "XY456", "flight_date": "2026-10-30", "airline": "XY Airways", "station": "BLR",
+                 "stand": "D16", "camera_id": "stand-d16-01", "handler": "Handler Co"},
+      "claim": {"delay_code": "32", "minutes": 12, "window_start": "2026-10-30T19:55:00", "window_end": "2026-10-30T20:07:00"},
+      "log": {"log_docked": "2026-10-30T19:35:00", "log_complete": "2026-10-30T19:58:00", "log_door": "2026-10-30T19:59:30"},
+      "contract": {"sla_rate": 40, "currency": "EUR"},
+      "upload": {"event": "loading", "view": "front_quarter", "reference_start": "2026-10-30T19:55:30",
+                 "speed_factor": 6.0, "speed_source": "estimated_from_vehicle_motion", "use_spark": true},
+      "expected": {"loading_complete_utc": "19:59:00", "supported_minutes": 4, "outcome": "Claim partly supported",
+                   "money": "EUR 160 supported, EUR 320 not supported"}
+    },
+    {
+      "id": "C",
+      "title": "XY789 - cannot be determined (footage ends while loading is still in progress)",
+      "clip": "clip3.mp4",
+      "message": "DLA\nXY789/30OCT VTGHI BLR\nSTD 1825Z ATD 1835Z\nDLA/32/0010 LOADING - HANDLER\nSI LOADER STILL AT HOLD AFTER STD, STAND C02",
+      "message_type": "DLA",
+      "flight": {"flight_number": "XY789", "flight_date": "2026-10-30", "airline": "XY Airways", "station": "BLR",
+                 "stand": "C02", "camera_id": "stand-c02-01", "handler": "Handler Co"},
+      "claim": {"delay_code": "32", "minutes": 10, "window_start": "2026-10-30T18:25:00", "window_end": "2026-10-30T18:35:00"},
+      "log": {"log_docked": "2026-10-30T18:22:00", "log_complete": "2026-10-30T18:30:00", "log_door": "2026-10-30T18:31:00"},
+      "contract": {"sla_rate": 40, "currency": "EUR"},
+      "upload": {"event": "loading", "view": "front_quarter", "reference_start": "2026-10-30T18:20:00",
+                 "speed_factor": 12.0, "speed_source": "estimated_from_vehicle_motion", "use_spark": true},
+      "expected": {"loading_complete_utc": null, "supported_minutes": null, "outcome": "Cannot be determined - insufficient evidence",
+                   "money": "none: the tool does not invent minutes it cannot see"}
+    }
+  ]
+}

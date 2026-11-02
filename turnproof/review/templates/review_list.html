@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Evidence Review{% endblock %}
+{% block content %}
+<section class="ph">
+  <div><div class="eyebrow">Evidence Review</div><h1>Evidence by flight</h1>
+  <div class="sub">One row per flight. Open a flight to investigate its frames, turnaround timeline and claim.</div></div>
+  {% if role == 'handler' %}<div class="ph-actions"><a class="btn primary" href="/station">{{ ui.icon('camera') }} Analyze Evidence</a></div>{% endif %}
+</section>
+
+{% for st in processing %}
+<div class="banner {{ 'bad' if st.state == 'failed' else '' }}"><b>{% if st.state == 'failed' %}Analysis failed{% elif st.state == 'recording' %}Recording from camera{% else %}Analysis in progress{% endif %}</b> · {{ st.clip }} · {{ st.stage or st.error }} · <a href="/runs/{{ st.run_id }}">{{ 'See the error' if st.state == 'failed' else 'Watch progress' }} →</a></div>
+{% endfor %}
+
+{% if not cases %}
+<div class="empty">No evidence yet. Record or upload footage from <a href="/station">Airport &amp; Cameras</a>.</div>
+{% else %}
+<section class="card flush">
+  <div class="toolbar">
+    <input class="input" type="search" placeholder="Search flight, airline, stand…" data-filter="#rv-t" aria-label="Search flights">
+    <span class="muted small" style="margin-left:auto">{{ cases | length }} flight{{ 's' if cases | length != 1 }}</span>
+  </div>
+  <div class="table-wrap"><table class="tbl compact" id="rv-t">
+    <thead><tr><th></th><th>Flight · Stand</th><th>Claimed</th><th>Supported</th><th>Evidence · time</th><th>Review</th><th>Analyses</th><th></th></tr></thead>
+    <tbody>
+    {% for c in cases %}{% set p = c.primary %}
+    <tr data-row="{{ loop.index }}" class="row-link" data-href="/runs/{{ p.run_id }}">
+      <td style="width:76px">{% if p.thumb %}<img class="mini-thumb" src="{{ p.thumb }}" alt="" loading="lazy">{% endif %}</td>
+      <td class="nowrap"><span class="flight">{{ c.meta.flight_number or 'Unknown flight' }}</span> <span class="muted tiny">{{ c.meta.airline }}</span><div class="muted tiny">{{ c.meta.station }} {{ c.meta.stand }} · {{ c.meta.flight_date }}</div></td>
+      <td class="num nowrap">{% if p.figures.no_claim %}<span class="muted small">No claim</span>{% else %}{{ p.figures.claimed }} min{% endif %}</td>
+      <td class="num">{% if p.figures.supported is none %}<span class="muted small">{{ p.figures.supported_why }}</span>{% else %}{{ p.figures.supported }} min<div class="tiny" style="margin-top:3px">{{ ui.outcome_pill(p.outcome, 'plain') }}</div>{% endif %}</td>
+      <td>{{ ui.evidence_pill(p.evidence_status) }}<div class="tiny {{ 't-ok' if p.synced else 't-warn' }}" style="margin-top:3px">{{ 'Synchronized' if p.synced else 'Not synchronized' }}</div></td>
+      <td>{{ ui.review_pill(p.review.state) }}</td>
+      <td class="small nowrap">{{ c.runs | length }}{% if c.runs | length > 1 %} <a href="#" class="btn ghost sm" data-toggle-rows="{{ loop.index }}">show ▾</a>{% endif %}</td>
+      <td class="nowrap"><a class="btn primary sm" href="/runs/{{ p.run_id }}">Investigate</a></td>
+    </tr>
+    {% if c.runs | length > 1 %}{% set outer = loop.index %}
+    {% for r in c.runs %}
+    <tr class="sub-row" data-parent="{{ outer }}" data-collapsed="1" hidden>
+      <td></td><td colspan="2" class="muted">↳ {{ r.created | day }} {{ r.created | hm }} · {{ r.footage.label }}{% if r.run_id == p.run_id %} · <b>case result</b>{% endif %}</td>
+      <td>{% if r.figures.supported is not none %}{{ r.figures.supported }} min{% else %}<span class="muted">{{ r.figures.supported_why }}</span>{% endif %}</td>
+      <td>{{ ui.evidence_pill(r.evidence_status) }}<div class="tiny {{ 't-ok' if r.synced else 't-warn' }}" style="margin-top:3px">{{ 'Synchronized' if r.synced else 'Not synchronized' }}</div></td>
+      <td>{{ ui.review_pill(r.review.state) }}</td><td></td>
+      <td><a class="btn ghost sm" href="/runs/{{ r.run_id }}">Open</a></td>
+    </tr>
+    {% endfor %}{% endif %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if processing and (processing | selectattr('state', 'in', ['queued', 'running', 'recording']) | list) %}<script>setTimeout(() => window.location.reload(), 8000);</script>{% endif %}
+{% endblock %}

@@ -1,102 +1,167 @@
 {% extends "base.html" %}
-{% block title %}Upload clip{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}Upload Footage{% endblock %}
+{% block crumb %}<a href="/station">Airport &amp; Cameras</a> › <b>Upload Footage</b>{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/">Runs</a> › Upload clip</div>
-<section class="run-head">
-  <div>
-    <h1>Upload a turnaround clip</h1>
-    <div class="muted">One stand-camera clip, the airline's delay claim, your milestone log. The run starts as soon as the upload finishes; a card appears on the front page and the run page shows progress.</div>
-  </div>
+{% set fl = fctx.flight if fctx else none %}
+{% set cam = fctx.camera if fctx else none %}
+<section class="ph">
+  <div><div class="eyebrow">Upload Footage</div><h1>Analyze Evidence{% if fl %} · {{ fl.flight_number }}{% endif %}</h1>
+  <div class="sub">Attach a clip to a claim. SAM 3.1 finds the aircraft and equipment, the rule computes the milestones, and you review the result.</div></div>
+  {% if fl %}<div class="ph-actions"><a class="btn" href="/station?flight={{ fl.flight_number | urlencode }}&date={{ fl.flight_date }}">Back to {{ fl.flight_number }}</a></div>{% endif %}
 </section>
+{% if fl %}
+<div class="casebar">
+  <div class="cb-id"><span class="cb-flight">{{ fl.flight_number }}</span><span class="muted">{{ fl.airline }}</span></div>
+  <div class="cb-f"><span>Airport</span><b>{{ fl.station or '—' }}</b></div>
+  <div class="cb-f"><span>Stand</span><b>{{ fl.stand or '—' }}</b></div>
+  <div class="cb-f"><span>On-block</span><b>{{ fl.on_block_utc | hm }}</b></div>
+  <div class="cb-f"><span>Camera</span><b>{{ cam.id if cam else 'None selected' }}</b></div>
+  <div class="cb-f"><span>Claim</span><b>{{ 'On file' if fctx.scenario else 'None on file' }}</b></div>
+</div>
+{% if not fctx.scenario %}<div class="banner neutral">No claim on file for {{ fl.flight_number }}. The flight details are filled in under <b>enter the claim by hand</b>; add the claimed minutes there, or create the claim first in <a href="/intake">New Claim</a>.</div>{% endif %}
+{% endif %}
 
-<form method="post" action="/upload" enctype="multipart/form-data" class="upload">
-  <div class="grid-2">
+<form method="post" action="/upload" enctype="multipart/form-data" id="up-form" data-confirm="Start the analysis? New footage is processed by SAM 3.1 and Muse Spark (paid model calls); footage analysed before is served from the cache.">
+<div class="grid">
+  <div class="c-8 stack">
     <section class="card">
-      <h2>1 · Footage</h2>
-      <label class="field">Video file (mp4 / mov)
+      <label class="drop">
         <input type="file" name="clip" accept="video/mp4,video/quicktime,.mp4,.mov,.m4v" required>
+        <div class="ic">{{ ui.icon('upload') }}</div>
+        <div class="t1">Drop a stand-camera clip here, or click to choose</div>
+        <div class="t2">MP4 or MOV · the analysis starts when the upload finishes</div>
+        <div class="file"></div>
       </label>
-      <div class="muted small">Re-uploading a clip that was already run costs nothing: model answers are cached by the file's SHA-256.</div>
+    </section>
 
-      <label class="field">Event to detect <span class="muted small">(the event library; same rule, different zone and delay-code family)</span>
-        <select name="event">
-          {% for name, e in events.items() %}<option value="{{ name }}" {% if name == 'loading' %}selected{% endif %}>{{ e.label }} — codes {{ e.delay_code_families | join('/') }}{% if not e.validated %} · defined, not yet validated on footage{% endif %}</option>{% endfor %}
+    <section class="card">
+      <div class="card-h"><h2>Claim and flight</h2><a class="btn ghost sm" href="/intake">New Claim →</a></div>
+      <label class="field">Claim this footage belongs to
+        <select name="scenario">
+          {% if not scenarios %}<option value="">No claim on file — enter it by hand below (or register it in New Claim)</option>
+          {% else %}<option value="" {% if not selected %}selected{% endif %}>Choose a claim on file…</option>
+          {% for s in scenarios %}<option value="{{ s.name }}" {% if s.name == selected %}selected{% endif %}>{{ s.label }}</option>{% endfor %}{% endif %}
         </select>
       </label>
-      <label class="field">Camera view <span class="muted small">(picks the zone preset)</span>
-        <select name="view">
-          <option value="front_quarter">front_quarter — camera ahead of the wing, nose toward the jet bridge</option>
-          <option value="side">side — true side-on view, nose at the left</option>
-          <option value="nose">nose — camera looks at the nose</option>
-        </select>
-      </label>
-
-      <div class="grid-2 tight">
-        <label class="field">Clip start time (UTC) <span class="muted small">leave blank → unsynced</span>
-          <input type="datetime-local" name="reference_start" step="1">
+      <div class="fields-2">
+        <label class="field">Event to detect
+          <select name="event">
+            {% for name, e in events.items() %}<option value="{{ name }}" {% if name == 'loading' %}selected{% endif %}>{{ e.label }} — codes {{ e.delay_code_families | join('/') }}{% if not e.validated %} · not yet validated{% endif %}</option>{% endfor %}
+          </select>
         </label>
-        <label class="field">Speed factor <span class="muted small">1.0 = real time; 6 = time-lapse, 1 s video = 6 s real</span>
-          <input type="number" name="speed_factor" value="1.0" step="0.1" min="0.1">
+        <label class="field">Camera view
+          <select name="view">
+            <option value="front_quarter" {{ 'selected' if cam and cam.view == 'front_quarter' }}>Front quarter — camera ahead of the wing</option>
+            <option value="side" {{ 'selected' if cam and cam.view == 'side' }}>Side — true side-on view, nose at the left</option>
+            <option value="nose" {{ 'selected' if cam and cam.view == 'nose' }}>Nose — camera looks at the nose</option>
+          </select>
         </label>
       </div>
-      <label class="field">How the speed factor is known
-        <select name="speed_source">
-          <option value="declared_by_uploader">declared by the uploader (camera is real-time or its rate is known)</option>
-          <option value="estimated_from_vehicle_motion">estimated from vehicle motion</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" name="use_spark" checked> Run the Muse Spark keyframe check (recommended; a few cents per clip)</label>
+      <details class="more" {{ 'open' if (fl and not fctx.scenario) or not scenarios }}>
+        <summary>…or enter the claim and your log by hand</summary>
+        <div class="more-body">
+          <div class="fields-3">
+            <label class="field">Flight number <input name="m_flight" placeholder="XY123" value="{{ (fl.flight_number) if fl and not fctx.scenario else '' }}"></label>
+            <label class="field">Airline <input name="m_airline" placeholder="XY Airways" value="{{ (fl.airline) if fl and not fctx.scenario else '' }}"></label>
+            <label class="field">Flight date <input type="date" name="m_date" value="{{ fl.flight_date if fl and not fctx.scenario else '' }}"></label>
+            <label class="field">Airport <input name="m_station" placeholder="BLR" value="{{ (fl.station) if fl and not fctx.scenario else '' }}"></label>
+            <label class="field">Stand <input name="m_stand" placeholder="D14" value="{{ (fl.stand) if fl and not fctx.scenario else '' }}"></label>
+            <label class="field">Camera <input name="m_camera" placeholder="stand-d14-01" value="{{ (cam.id if cam else '') if fl and not fctx.scenario else '' }}"></label>
+            <label class="field">Handler <input name="m_handler" placeholder="Handler Co"></label>
+            <label class="field">Contract penalty per minute <input type="number" name="m_sla_rate" value="40" step="0.01" min="0"></label>
+            <label class="field">Currency <input name="m_currency" value="EUR"></label>
+          </div>
+          <h3>Airline's delay claim</h3>
+          <div class="fields-2">
+            <label class="field">Delay code
+              <select name="m_code">
+                <option value="31">31 — late documentation / load control</option>
+                <option value="32" selected>32 — loading / unloading</option>
+                <option value="33">33 — loading equipment</option>
+                <option value="34">34 — servicing equipment</option>
+                <option value="35">35 — aircraft cleaning</option>
+                <option value="36">36 — fuelling / defuelling</option>
+                <option value="37">37 — catering</option>
+                <option value="38">38 — ULD / container</option>
+                <option value="39">39 — technical equipment</option>
+              </select>
+            </label>
+            <label class="field">Minutes claimed <input type="number" name="m_minutes" min="0" placeholder="9"></label>
+            <label class="field">Claimed delay starts (UTC) <input type="datetime-local" name="m_win_start" step="1"></label>
+            <label class="field">Claimed delay ends (UTC) <input type="datetime-local" name="m_win_end" step="1"></label>
+          </div>
+          <h3>Your milestone log</h3>
+          <div class="fields-3">
+            <label class="field">Loader docked (UTC) <input type="datetime-local" name="m_log_docked" step="1"></label>
+            <label class="field">Loading complete (UTC) <input type="datetime-local" name="m_log_complete" step="1"></label>
+            <label class="field">Hold door closed (UTC) <input type="datetime-local" name="m_log_door" step="1"></label>
+          </div>
+          <div class="muted small">A flight number here overrides the selected claim.</div>
+        </div>
+      </details>
     </section>
 
     <section class="card">
-      <h2>2 · Claim and log</h2>
-      <div class="small" style="margin-bottom:8px">Got the airline's message? <a href="/intake">Claim intake →</a> reads an MVT/DLA line, an email or a photo of the delay report with Muse Spark, you confirm, and it appears in this list.</div>
-      <label class="field">Use a saved scenario
-        <select name="scenario">
-          {% for s in scenarios %}<option value="{{ s.name }}" {% if s.name == selected %}selected{% endif %}>{{ s.label }}</option>{% endfor %}
-        </select>
-      </label>
-      <details class="manual">
-        <summary>…or enter the claim and your log by hand</summary>
-        <div class="grid-2 tight">
-          <label class="field">Flight number <input name="m_flight" placeholder="XY123"></label>
-          <label class="field">Airline <input name="m_airline" placeholder="XY Airways"></label>
-          <label class="field">Station <input name="m_station" placeholder="BLR"></label>
-          <label class="field">Stand <input name="m_stand" placeholder="D14"></label>
-          <label class="field">Flight date <input type="date" name="m_date"></label>
-          <label class="field">Handler <input name="m_handler" placeholder="Handler Co"></label>
-          <label class="field">Camera id <input name="m_camera" placeholder="stand-d14-01"></label>
-        </div>
-        <h3>Airline's delay claim</h3>
-        <div class="grid-2 tight">
-          <label class="field">Delay code
-            <select name="m_code">
-              <option value="31">31 — late documentation / load control</option>
-              <option value="32" selected>32 — loading / unloading</option>
-              <option value="33">33 — loading equipment</option>
-              <option value="34">34 — servicing equipment</option>
-              <option value="35">35 — aircraft cleaning</option>
-              <option value="36">36 — fuelling / defuelling</option>
-              <option value="37">37 — catering</option>
-              <option value="38">38 — ULD / container</option>
-              <option value="39">39 — technical equipment</option>
-            </select>
+      <div class="card-h"><div><h2>Time synchronization</h2><div class="muted">Decides whether clock times and minutes can be computed</div></div><span id="sync-ind" class="pill warn">Not synchronized</span></div>
+      <div>
+        <div class="fields-2">
+          <label class="field">Clip start time (UTC) <span class="hint">leave blank → time not synchronized</span>
+            <input type="datetime-local" name="reference_start" step="1">
           </label>
-          <label class="field">Minutes claimed <input type="number" name="m_minutes" min="0" placeholder="9"></label>
-          <label class="field">Claim window start (UTC) <input type="datetime-local" name="m_win_start" step="1"></label>
-          <label class="field">Claim window end (UTC) <input type="datetime-local" name="m_win_end" step="1"></label>
+          <label class="field">Speed factor <span class="hint">1.0 = real time; above 1 = time-lapse</span>
+            <input type="number" name="speed_factor" value="1.0" step="0.1" min="0.1">
+          </label>
         </div>
-        <h3>Your milestone log</h3>
-        <div class="grid-2 tight">
-          <label class="field">Loader docked (UTC) <input type="datetime-local" name="m_log_docked" step="1"></label>
-          <label class="field">Loading complete (UTC) <input type="datetime-local" name="m_log_complete" step="1"></label>
-          <label class="field">Hold door closed (UTC) <input type="datetime-local" name="m_log_door" step="1"></label>
-        </div>
-        <div class="muted small">If a flight number is entered here, these fields are used instead of the saved scenario. Everything is labelled synthetic test data.</div>
-      </details>
-      <div class="btns"><button class="btn primary big" type="submit">Upload and run</button><a class="btn" href="/">Cancel</a></div>
-      <div class="muted small">Integration: the same fields on <code>POST /api/upload</code> (multipart) return <code>{"run_id", "status", "page"}</code>, so a station's video system can push clips without this form.</div>
+        <label class="field">How the speed factor is known
+          <select name="speed_source">
+            <option value="declared_by_uploader">Declared by the uploader (camera is real-time or its rate is known)</option>
+            <option value="estimated_from_vehicle_motion">Estimated from vehicle motion</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="use_spark" checked> Muse Spark keyframe check (flags the detected event for review)</label>
+        <div class="muted small" id="sync-why">Without a clip start time the result shows frame numbers only: “Time not synchronized”.</div>
+        <div class="muted tiny" style="margin-top:6px">API: the same fields on <code>POST /api/upload</code>.</div>
+      </div>
     </section>
   </div>
+
+  <div class="c-4 stack">
+    <section class="card accent" data-summary-of="up-form">
+      <div class="card-h"><h2>Before you start</h2></div>
+      <table class="kv">
+        <tr><th>Footage</th><td data-sum="clip" data-empty="No file chosen"></td></tr>
+        <tr><th>Claim</th><td data-sum="scenario" data-empty="Entered by hand (flight number below)"></td></tr>
+        <tr><th>Event</th><td data-sum="event"></td></tr>
+        <tr><th>Camera view</th><td data-sum="view"></td></tr>
+        <tr><th>Clip start (UTC)</th><td data-sum="reference_start" data-empty="Not set · time not synchronized"></td></tr>
+        <tr><th>Speed factor</th><td data-sum="speed_factor"></td></tr>
+        <tr><th>Speed source</th><td data-sum="speed_source"></td></tr>
+        <tr><th>AI keyframe check</th><td data-sum="use_spark"></td></tr>
+        <tr><th>Time sync</th><td id="sync-sum">Not synchronized</td></tr>
+      </table>
+      <div class="muted small" style="margin-top:10px">Start time and speed factor decide whether minutes can be computed. Without a start time the result is “Time not synchronized”.</div>
+      <div class="btns"><button class="btn primary lg block" type="submit">Upload and analyze</button><a class="btn block" href="{{ '/station?flight=' ~ (fl.flight_number | urlencode) ~ '&date=' ~ fl.flight_date if fl else '/station' }}">Cancel</a></div>
+    </section>
+  </div>
+</div>
 </form>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const f = document.getElementById('up-form'), ind = document.getElementById('sync-ind'), sum = document.getElementById('sync-sum'), why = document.getElementById('sync-why');
+  const upd = () => {
+    const start = (f.reference_start.value || '').trim(), speed = parseFloat(f.speed_factor.value || '0');
+    const ok = !!start && speed > 0;
+    const lapse = ok && speed !== 1;
+    ind.className = 'pill ' + (ok ? 'good' : 'warn');
+    ind.textContent = ok ? (lapse ? 'Synchronized · ×' + speed + ' time-lapse' : 'Synchronized') : 'Not synchronized';
+    sum.textContent = ind.textContent;
+    why.textContent = ok ? ('Clock times = clip start ' + start.replace('T', ' ') + ' UTC + video time' + (lapse ? ' × ' + speed + ' (' + (f.speed_source.value.indexOf('estimated') >= 0 ? 'estimated' : 'declared') + ' speed factor)' : '') + '.')
+                         : 'Without a clip start time the result shows frame numbers only: “Time not synchronized”.';
+  };
+  ['input', 'change'].forEach(ev => f.addEventListener(ev, upd)); upd();
+})();
+</script>
 {% endblock %}

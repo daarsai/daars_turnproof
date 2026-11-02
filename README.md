@@ -68,6 +68,21 @@ Pick the event in the upload form (or `event=` on `POST /api/upload`). An unvali
 
 Airlines send MVT / DLA telex lines, emails, or scanned delay reports, not JSON. **Claim intake** (`/intake`) sends the message — text or a photo — to Muse Spark with a strict JSON schema and gets back the delay code, minutes, claim window and flight; a deterministic telex parser runs alongside as a cross-check; the operator confirms before it becomes an input. The message, Spark's raw answer and the confirmed values are stored together with the scenario, and the packet records the claim's source as "via Muse Spark claim intake, confirmed by operator".
 
+## Three demo cases: no penalty, a penalty that stands, and no verdict
+
+The console starts empty: it lists only claims registered in it (New Claim, or typed on the upload page) and footage uploaded or recorded through it; the `scenarios/` folders in the repo are test fixtures for the CLI and the test-suite. `make reset-demo` moves runs, claims, uploads and deliveries to `data/archive/<timestamp>/` and keeps the model cache, so a demo can be replayed from zero at no model cost.
+
+Every case ends in one of four outcomes, computed by the rule alone and shown on the case, the packet and both work queues, with the money at the contract rate on file:
+
+| Outcome | Meaning |
+|---|---|
+| **Claim not supported** | the event finished before the claimed window: no penalty minutes attributable to the handler |
+| **Claim partly supported** | the event was still in progress for part of the window: those minutes are the handler's, the rest are not |
+| **Claim supported** | the whole claimed window overlaps the event: the penalty stands |
+| **Cannot be determined** | no completion observed, footage not time-synchronized, or no claim window |
+
+`docs/DEMO_SCRIPT.md` walks through the three demo turnarounds step by step — XY123 (loading finished before STD: claim not supported), XY456 (loading finished 4 minutes into the window: claim partly supported) and XY789 (footage ends before loading does: cannot be determined); `python scripts/run_demo_cases.py` registers the claims and uploads the footage from `config/demo_cases.json`, and `docs/DEMO_STORYBOARD.md` is the recording plan for the video.
+
 ## Station board
 
 The handler's front page opens with the numbers a station manager runs on, all computed from the runs: turnarounds reviewed, minutes claimed vs minutes the video supports, **penalty exposure the video does not support** at the SLA rate declared per contract (synthetic in the demo), packets sent / acknowledged / disputed, Spark agreement with the rule, model spend per turnaround.
@@ -124,7 +139,7 @@ make setup                        # venv, deps, demo signing keys, .env from tem
 #   put MODEL_API_KEY=... (Meta Model API, Standard mode) into .env
 cp your_clip.mp4 clips/clip1.mp4  # a stand-camera clip; scenarios/clip1/ holds the synthetic claim + log
 make demo CLIP=clips/clip1.mp4    # run the pipeline (prints the run id and the verify command)
-make serve                        # console -> http://localhost:8080
+make serve                        # console -> http://localhost:8090
 ```
 
 Other targets:
@@ -136,6 +151,7 @@ make verify PACKET=data/runs/<run>/packets/<id>.json   # all 7 checks
 make tamper PACKET=...            # copy the frames, flip one pixel, expect FAIL
 make replay RUN=<run_id>          # re-run a clip from the cache, no API spend
 make archive RUN=<run_id>         # hide an old run from the console (moved to data/archive/)
+make reset-demo                   # start the console empty (everything moved to data/archive/<ts>/, cache kept)
 docker compose up --build         # same console in a container (mount data/, clips/, keys/)
 ```
 
