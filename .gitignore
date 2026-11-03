@@ -18,8 +18,3 @@ build/
 .DS_Store
 
 # local AI-tool folders and notes, never committed
-.claude/
-.cursor/
-.codex/
-CLAUDE.md
-AGENTS.md
