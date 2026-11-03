@@ -17,4 +17,3 @@ build/
 *.egg-info/
 .DS_Store
 
-# local AI-tool folders and notes, never committed
