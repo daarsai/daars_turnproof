@@ -1,0 +1,282 @@
+{
+ "airline_claim": {
+  "delay_code": "32",
+  "minutes": 3,
+  "source": "DLA via Muse Spark claim intake, confirmed by operator"
+ },
+ "chain": {
+  "event_log_head_sha256": "122ff59cdf8a4819e16e9f4a7d6dff7d29512075182180bef172966a25808238",
+  "prev_packet_sha256": "cac0c0c3d22211481f2b5f8ab7a3295e849b98c54c80bcf9fa9f6bdda85b0561"
+ },
+ "counterparty": {
+  "actor": "airline_reviewer",
+  "reason": "Accepted. 3 minutes confirmed by video.",
+  "state": "ACKNOWLEDGED",
+  "t_utc": "2026-11-03T07:58:41Z"
+ },
+ "created_at_utc": "2026-11-03T07:58:41Z",
+ "data_label": "synthetic test data on licensed footage",
+ "discrepancies": [
+  {
+   "airline_claim_minutes": 3,
+   "delta_min": null,
+   "handler_log_utc": "2026-10-30T18:20:00Z",
+   "milestone": "loader_docked_start",
+   "note": "equipment already present at clip start; video gives an upper bound only; log time is consistent",
+   "video_minus_log_min": null,
+   "video_supported_minutes": null,
+   "video_utc": "2026-10-30T18:44:45.000Z"
+  },
+  {
+   "airline_claim_minutes": 3,
+   "delta_min": 0,
+   "handler_log_utc": "2026-10-30T18:44:00Z",
+   "milestone": "loading_complete",
+   "note": null,
+   "video_minus_log_min": 4.3,
+   "video_supported_minutes": 3,
+   "video_utc": "2026-10-30T18:48:15.210Z"
+  }
+ ],
+ "evidence_frames": [
+  {
+   "frame_index": 0,
+   "id": "f00000",
+   "original_ref": "enc/f00000.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "1650c0631ce911b130cf894b34acc606e83b3925230155022fbe0c06dc5eddfc",
+   "sha256_redacted": "2cc0cdf7074ea0bc396634d6c8b130bdd8cf120f879f70921ed01061e2e01574",
+   "t_utc": "2026-10-30T18:44:45.000Z"
+  },
+  {
+   "frame_index": 525,
+   "id": "f00525",
+   "original_ref": "enc/f00525.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "592305f0cbab6363942aa9f076403ee12db1b12170b1ac8c22fa969f5da1b5f9",
+   "sha256_redacted": "17e28ae29e2cc8e8bf711f73fe8cfa4bca7300b615a683ae45f898f0ff17a553",
+   "t_utc": "2026-10-30T18:46:30.105Z"
+  },
+  {
+   "frame_index": 1050,
+   "id": "f01050",
+   "original_ref": "enc/f01050.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "bf920ace224411495f4fe1605da36552e07082cde2ce46c246cd2b59ccf4e7ec",
+   "sha256_redacted": "3a7f8e60e15223568c9ab3ac489a47a1db6d2c99bab80ca16aa4e542e3b6627d",
+   "t_utc": "2026-10-30T18:48:15.210Z"
+  },
+  {
+   "frame_index": 1139,
+   "id": "f01139",
+   "original_ref": "enc/f01139.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "7eec7ac0f22dd432d0ef6fe9617f64299f16125f73787a85ed44aeef90f26688",
+   "sha256_redacted": "2acd7aeec998953f01ca94bdd7866e7256297486863c59cc01892ebcdb91e08b",
+   "t_utc": "2026-10-30T18:48:33.027Z"
+  }
+ ],
+ "flight": {
+  "airline": "XY Airways",
+  "date": "2026-10-30",
+  "number": "XY123",
+  "registration": null
+ },
+ "handler_log": [
+  {
+   "milestone": "loader_docked_start",
+   "t_utc": "2026-10-30T18:20:00Z"
+  },
+  {
+   "milestone": "loading_complete",
+   "t_utc": "2026-10-30T18:44:00Z"
+  },
+  {
+   "milestone": "hold_door_closed",
+   "t_utc": "2026-10-30T18:45:00Z"
+  }
+ ],
+ "human_statement": {
+  "audio_sha256": null,
+  "model": null,
+  "operator": "handler_operator",
+  "recorded_at_utc": "2026-11-03T07:56:51Z",
+  "source": "typed",
+  "text": "Video shows the loader left the forward hold at 18:48, after STD. Our log of 18:44 was wrong. Claim accepted."
+ },
+ "milestones": [
+  {
+   "confidence": 0.855,
+   "evidence_frames": [
+    "f00000"
+   ],
+   "frame_index": 0,
+   "method": "sam31_vehicle_zone_overlap_present_at_clip_start",
+   "name": "loader_docked_start",
+   "t_utc": "2026-10-30T18:44:45.000Z",
+   "zone": "forward_hold"
+  },
+  {
+   "confidence": 0.855,
+   "evidence_frames": [
+    "f01050"
+   ],
+   "frame_index": 1050,
+   "method": "sam31_vehicle_zone_overlap_absence_cut_short_by_clip_end",
+   "name": "loading_complete",
+   "t_utc": "2026-10-30T18:48:15.210Z",
+   "zone": "forward_hold"
+  }
+ ],
+ "models": {
+  "asr": null,
+  "sam": {
+   "calls": [
+    {
+     "cached": true,
+     "concept": "aircraft",
+     "kind": "video",
+     "seconds": 0
+    },
+    {
+     "cached": true,
+     "concept": "vehicle",
+     "kind": "video",
+     "seconds": 0
+    },
+    {
+     "cached": true,
+     "concept": "person",
+     "kind": "video",
+     "seconds": 0
+    }
+   ],
+   "event": {
+    "concept": "vehicle",
+    "delay_code_families": [
+     "31",
+     "32",
+     "33",
+     "34",
+     "35",
+     "36",
+     "37",
+     "38",
+     "39"
+    ],
+    "label": "Loading equipment at the hold",
+    "milestones": {
+     "end": "loading_complete",
+     "start": "loader_docked_start"
+    },
+    "name": "loading",
+    "validated": true,
+    "zones": [
+     "forward_hold"
+    ]
+   },
+   "id": "sam-3.1",
+   "prompts": [
+    "aircraft",
+    "vehicle",
+    "person"
+   ]
+  },
+  "spark": {
+   "confidence": 0.82,
+   "hold_door_state": "unknown",
+   "id": "muse-spark-1.3",
+   "ok": true,
+   "path": "A",
+   "prompt_sha256": "69babc6b2d2a21865186afb398b477a4572d27e5bf3269526ccb2b35f42ec916",
+   "prompt_version": "keyframe-facts-0.3",
+   "reasoning_effort": "medium",
+   "requires_operator_review": true,
+   "rule_claim_check": {
+    "agree": true,
+    "claim": "loader_departed",
+    "reason": "Loader docked adjacent in f00525 is no longer adjacent in f01050 and remains absent in f01139, consistent with loader departed."
+   },
+   "suggested_delay_code_family": "32"
+  },
+  "zones_config_sha256": "3bd09a01738d1949d50920c493c7ebe260028d2b872362fc24682cdf70d3b215"
+ },
+ "observed_facts": [
+  {
+   "frames": [
+    "f00525"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "A container loader high-loader marked CCL 35 S is positioned adjacent to the forward fuselage near the wing root"
+  },
+  {
+   "frames": [
+    "f00525"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "A baggage cart dolly and tow tractor are on the apron near the aircraft foreground"
+  },
+  {
+   "frames": [
+    "f01050"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "The container loader is no longer adjacent to the fuselage and a belt loader is being towed away from the aircraft on the left side of the apron"
+  },
+  {
+   "frames": [
+    "f01139"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "No loading equipment is adjacent to the forward fuselage; the apron beside the aircraft is clear apart from cones and a distant service vehicle behind the engine"
+  },
+  {
+   "frames": [
+    "f01139_holdcrop"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "The zoomed hold crop shows nose landing gear, engine inlet, flap and apron but does not show the cargo hold door"
+  }
+ ],
+ "packet_id": "TP-20261103-df350fc7",
+ "packet_sha256": "81fa77c65747f730a133bd304c85b3c0d2dc6193350a8caeb74b339f22fb02d3",
+ "parties": {
+  "airline": "XY Airways",
+  "handler": "Handler Co"
+ },
+ "proposed_claim": {
+  "basis": "3 min of the claimed window overlap the event in progress",
+  "delay_code_family": "32",
+  "minutes_supported_by_video": 3
+ },
+ "review": {
+  "corrections": [],
+  "decision": "confirmed",
+  "note": "Departure frames checked; zone clear only from 18:48:15. Accepting 3 minutes.",
+  "operator": "handler_operator",
+  "t_utc": "2026-11-03T07:57:33Z"
+ },
+ "schema_version": "0.1",
+ "signature": {
+  "alg": "Ed25519",
+  "key_id": "turnproof-demo-2026",
+  "sig_base64": "15YFIBXRf1jbsc3visIr0jY3aY1tlDCLbiZKOaVmIIdehSh9NOwlt/NMYFcSlRKwQ3WmlO9FQPgxAKT05qvvCw=="
+ },
+ "source": {
+  "camera_id": "stand-d14-01",
+  "duration_s": 40.07,
+  "file_sha256": "b09d3e3a72f33c8c6fe4f91d6993d02d366f0f3902037dfbd91ecfdcd39a1990",
+  "fps": 29.97002997002997,
+  "type": "upload"
+ },
+ "stand": "D14",
+ "station": "BLR",
+ "time_sync": {
+  "measured_offset_s": null,
+  "method": "uploader_declared start; speed_factor 6.0 (estimated_from_vehicle_motion): 1 s video = 6.0 s real",
+  "reference_start_utc": "2026-10-30T18:44:45Z",
+  "speed_factor": 6.0,
+  "speed_factor_source": "estimated_from_vehicle_motion",
+  "status": "declared"
+ }
+}

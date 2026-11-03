@@ -153,6 +153,4 @@ pipeline.
 
 ## Deployment note
 
-Port 8090 is the isolated development preview of this worktree. After approval and merge, the
-single application entry point is the main console on port 8090, with both workspaces in the same
-application. The RTSP media service stays internal on port 8554 as today.
+The console runs on port 8090; the RTSP media service stays internal on 8554.

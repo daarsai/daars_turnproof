@@ -1,0 +1,276 @@
+{
+ "airline_claim": {
+  "delay_code": "32",
+  "minutes": 12,
+  "source": "MVT via Muse Spark claim intake, confirmed by operator"
+ },
+ "chain": {
+  "event_log_head_sha256": "7a61cf2cd84c7bacefbf7e59369234e78972ba0214ac423b15390310c06d9f82",
+  "prev_packet_sha256": "1aa7210c217136a22ef00d5bcdc4932d599cb34643a1049b6eb1829857181c7a"
+ },
+ "counterparty": {
+  "actor": "airline_reviewer",
+  "reason": "We recorded the vehicle at the hold until 20:07. Request full 12 minutes.",
+  "state": "DISPUTED",
+  "t_utc": "2026-11-03T08:16:44Z"
+ },
+ "created_at_utc": "2026-11-03T08:16:44Z",
+ "data_label": "synthetic test data on licensed footage",
+ "discrepancies": [
+  {
+   "airline_claim_minutes": 12,
+   "delta_min": null,
+   "handler_log_utc": "2026-10-30T19:35:00Z",
+   "milestone": "loader_docked_start",
+   "note": null,
+   "video_minus_log_min": 21.4,
+   "video_supported_minutes": null,
+   "video_utc": "2026-10-30T19:56:24.000Z"
+  },
+  {
+   "airline_claim_minutes": 12,
+   "delta_min": 10,
+   "handler_log_utc": "2026-10-30T19:58:00Z",
+   "milestone": "loading_complete",
+   "note": null,
+   "video_minus_log_min": 1.0,
+   "video_supported_minutes": 2,
+   "video_utc": "2026-10-30T19:59:00.000Z"
+  }
+ ],
+ "evidence_frames": [
+  {
+   "frame_index": 30,
+   "id": "f00030",
+   "original_ref": "enc/f00030.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "a5bb5e534c81437c62ca672088fb8725b28ec4041762fb82cc1879659d379f24",
+   "sha256_redacted": "8e93be7483ce946a781558f2354c41806029736cd5740d815ea80bef14fd20ab",
+   "t_utc": "2026-10-30T19:56:24.000Z"
+  },
+  {
+   "frame_index": 225,
+   "id": "f00225",
+   "original_ref": "enc/f00225.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "599945903f1612a05570e087d71b5910fbaa5ea92d464af2efed14786a45cd74",
+   "sha256_redacted": "d4acb1adaea38be01515aa001eb1ff68a011f2b5f84ad820f97cb83711257d93",
+   "t_utc": "2026-10-30T19:57:42.000Z"
+  },
+  {
+   "frame_index": 420,
+   "id": "f00420",
+   "original_ref": "enc/f00420.bin",
+   "redaction": "persons_blurred_sam31_box",
+   "sha256_original": "a7dce8bcc731ad7930459d0d431c45b02e3d53a8b803db79bdbc75560a720861",
+   "sha256_redacted": "84e82f6f6cc9c478197e91ba5e009925f6de15f86ef5c42267dd289b5a352a85",
+   "t_utc": "2026-10-30T19:59:00.000Z"
+  },
+  {
+   "frame_index": 510,
+   "id": "f00510",
+   "original_ref": "enc/f00510.bin",
+   "redaction": "no_person_detected",
+   "sha256_original": "83a417c6af35ce0a092718cfc73e6f1c7753fcada3de43e51e85b691a2e57847",
+   "sha256_redacted": "83a417c6af35ce0a092718cfc73e6f1c7753fcada3de43e51e85b691a2e57847",
+   "t_utc": "2026-10-30T19:59:36.000Z"
+  }
+ ],
+ "flight": {
+  "airline": "XY Airways",
+  "date": "2026-10-30",
+  "number": "XY456",
+  "registration": null
+ },
+ "handler_log": [
+  {
+   "milestone": "loader_docked_start",
+   "t_utc": "2026-10-30T19:35:00Z"
+  },
+  {
+   "milestone": "loading_complete",
+   "t_utc": "2026-10-30T19:58:00Z"
+  },
+  {
+   "milestone": "hold_door_closed",
+   "t_utc": "2026-10-30T19:59:30Z"
+  }
+ ],
+ "human_statement": {
+  "audio_sha256": null,
+  "model": null,
+  "operator": "handler_operator",
+  "recorded_at_utc": "2026-11-03T08:14:35Z",
+  "source": "typed",
+  "text": "Loader was still at the hold at STD. Video shows it left at 19:59. Two minutes are ours; ten are not."
+ },
+ "milestones": [
+  {
+   "confidence": 0.764,
+   "evidence_frames": [
+    "f00030"
+   ],
+   "frame_index": 30,
+   "method": "sam31_vehicle_zone_overlap",
+   "name": "loader_docked_start",
+   "t_utc": "2026-10-30T19:56:24.000Z",
+   "zone": "forward_hold"
+  },
+  {
+   "confidence": 0.764,
+   "evidence_frames": [
+    "f00420"
+   ],
+   "frame_index": 420,
+   "method": "sam31_vehicle_zone_overlap_absence_cut_short_by_clip_end",
+   "name": "loading_complete",
+   "t_utc": "2026-10-30T19:59:00.000Z",
+   "zone": "forward_hold"
+  }
+ ],
+ "models": {
+  "asr": null,
+  "sam": {
+   "calls": [
+    {
+     "cached": true,
+     "concept": "aircraft",
+     "kind": "video",
+     "seconds": 0
+    },
+    {
+     "cached": true,
+     "concept": "vehicle",
+     "kind": "video",
+     "seconds": 0
+    },
+    {
+     "cached": true,
+     "concept": "person",
+     "kind": "video",
+     "seconds": 0
+    }
+   ],
+   "event": {
+    "concept": "vehicle",
+    "delay_code_families": [
+     "31",
+     "32",
+     "33",
+     "34",
+     "35",
+     "36",
+     "37",
+     "38",
+     "39"
+    ],
+    "label": "Loading equipment at the hold",
+    "milestones": {
+     "end": "loading_complete",
+     "start": "loader_docked_start"
+    },
+    "name": "loading",
+    "validated": true,
+    "zones": [
+     "forward_hold"
+    ]
+   },
+   "id": "sam-3.1",
+   "prompts": [
+    "aircraft",
+    "vehicle",
+    "person"
+   ]
+  },
+  "spark": {
+   "confidence": 0.55,
+   "hold_door_state": "unknown",
+   "id": "muse-spark-1.3",
+   "ok": true,
+   "path": "A",
+   "prompt_sha256": "69babc6b2d2a21865186afb398b477a4572d27e5bf3269526ccb2b35f42ec916",
+   "prompt_version": "keyframe-facts-0.3",
+   "reasoning_effort": "medium",
+   "requires_operator_review": true,
+   "rule_claim_check": {
+    "agree": true,
+    "claim": "loader_departed",
+    "reason": "No loading equipment remains docked in the foreground area in f00420 and f00510 where vehicles were present in f00225, consistent with equipment having departed."
+   },
+   "suggested_delay_code_family": "none"
+  },
+  "zones_config_sha256": "3bd09a01738d1949d50920c493c7ebe260028d2b872362fc24682cdf70d3b215"
+ },
+ "observed_facts": [
+  {
+   "frames": [
+    "f00225"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "A white aircraft is parked in the foreground with multiple ground vehicles adjacent to its nose and baggage carts with blue covers in the lower foreground"
+  },
+  {
+   "frames": [
+    "f00225"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "A mobile passenger stairs vehicle is positioned at the forward fuselage of the white aircraft"
+  },
+  {
+   "frames": [
+    "f00420",
+    "f00510"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "The foreground apron is empty of docked loading equipment and the white aircraft is distant at the right edge in f00420 and no longer visible in f00510, with only a distant FedEx aircraft visible"
+  },
+  {
+   "frames": [
+    "f00510_holdcrop"
+   ],
+   "source": "muse-spark-1.3",
+   "text": "The zoomed crop of the hold area is blurred and no hold door outline is discernible"
+  }
+ ],
+ "packet_id": "TP-20261103-a58696d0",
+ "packet_sha256": "86029be239ed094a83fda7a55f8a906fa54d5b8af9126a76cbfa6191d8a952cc",
+ "parties": {
+  "airline": "XY Airways",
+  "handler": "Handler Co"
+ },
+ "proposed_claim": {
+  "basis": "2 min of the claimed window overlap the event in progress",
+  "delay_code_family": "32",
+  "minutes_supported_by_video": 2
+ },
+ "review": {
+  "corrections": [],
+  "decision": "confirmed",
+  "note": "Loader still at the hold at STD; 2 minutes are ours, 10 are not.",
+  "operator": "handler_operator",
+  "t_utc": "2026-11-03T08:14:48Z"
+ },
+ "schema_version": "0.1",
+ "signature": {
+  "alg": "Ed25519",
+  "key_id": "turnproof-demo-2026",
+  "sig_base64": "1bRu/NTrEWIlow0BCwNg9laQchp6NKJeLOi5WRXspw1mkB8tGcM3FNvPo5yNFYOx04tQpQAs9KiNkeMlOL4SDQ=="
+ },
+ "source": {
+  "camera_id": "stand-d16-01",
+  "duration_s": 18.0,
+  "file_sha256": "71ebe41b68b9615d68b4af9bdb30d4ac99c830f924e68d9357f8ba9a8d9bd533",
+  "fps": 30.0,
+  "type": "upload"
+ },
+ "stand": "D16",
+ "station": "BLR",
+ "time_sync": {
+  "measured_offset_s": null,
+  "method": "uploader_declared start; speed_factor 12.0 (estimated_from_vehicle_motion): 1 s video = 12.0 s real",
+  "reference_start_utc": "2026-10-30T19:56:12Z",
+  "speed_factor": 12.0,
+  "speed_factor_source": "estimated_from_vehicle_motion",
+  "status": "declared"
+ }
+}

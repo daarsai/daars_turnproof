@@ -5,8 +5,10 @@
 Upload one stand-camera clip, the airline's delay claim and your own milestone log. TurnProof finds
 the one event that most delay disputes turn on — *loading equipment docked at the hold → loading
 complete* — puts it against the claim and the log, lets a human confirm or reject it, and produces a
-signed, hash-verified evidence packet the airline can check with a standalone script. No account, no
-API key, no trust in us required.
+signed, hash-verified evidence packet the airline can check with a standalone script. Anyone can
+re-verify a packet offline with a standalone script — no Meta API key needed. Running fresh model
+inference requires a Meta Model API key. Production access is role-based login for handler and
+airline.
 
 Built for the **Meta Global AI Developer Hackathon 2026** (Startup track) on the Meta Model API:
 **SAM 3.1** for text-prompted detection of the aircraft and any loading equipment, **Muse Spark 1.3**
@@ -25,6 +27,10 @@ for structured keyframe facts that can *flag* a candidate but never *decide* it.
 | One card per clip. Open it: two big frames — *equipment at the hold* → *hold clear* — with SAM 3.1 boxes, the occupancy timeline under the video, milestone times against the handler log and the claim, Muse Spark's keyframe facts, and **Confirm / Reject / Correct → Send**. | Only packets the handler has **sent**. Claim vs what the video supports, key frames with hashes, **Verify packet now** (runs the verifier live), **Tamper test**, Download JSON / PDF, **Acknowledge / Dispute**. |
 
 Every decision is appended to a hash-chained event log. Models detect and flag; humans decide.
+
+The Handler/Airline switch is a demo toggle with no authentication; `/login` is a disabled
+placeholder. Production needs real logins and per-organisation access (see
+`BACKEND_REQUIREMENTS.md` §3.1).
 
 ## How it works
 
@@ -58,7 +64,7 @@ One rule engine, several turnaround events. `config/config.yaml` → `events:` n
 
 | Event | Milestones | Delay-code families | Status |
 | --- | --- | --- | --- |
-| **loading** — loading equipment at the hold | `loader_docked_start` → `loading_complete` | 31–39 | validated on the three clips in this repository |
+| **loading** — loading equipment at the hold | `loader_docked_start` → `loading_complete` | 31–39 | validated on three licensed clips (not distributed): a complete cycle on clip1 and clip3, none on clip2 |
 | fuelling — fuel truck at the wing | `fuel_truck_docked_start` → `fuelling_complete` | 36 | defined; zone fractions not yet checked on footage |
 | catering — catering truck at the forward door | `catering_docked_start` → `catering_complete` | 37 | defined; zone fractions not yet checked on footage |
 
@@ -68,7 +74,7 @@ Pick the event in the upload form (or `event=` on `POST /api/upload`). An unvali
 
 Airlines send MVT / DLA telex lines, emails, or scanned delay reports, not JSON. **Claim intake** (`/intake`) sends the message — text or a photo — to Muse Spark with a strict JSON schema and gets back the delay code, minutes, claim window and flight; a deterministic telex parser runs alongside as a cross-check; the operator confirms before it becomes an input. The message, Spark's raw answer and the confirmed values are stored together with the scenario, and the packet records the claim's source as "via Muse Spark claim intake, confirmed by operator".
 
-## Three demo cases: no penalty, a penalty that stands, and no verdict
+## Three demo cases: a claim supported, a claim partly supported, and no verdict
 
 The console starts empty: it lists only claims registered in it (New Claim, or typed on the upload page) and footage uploaded or recorded through it; the `scenarios/` folders in the repo are test fixtures for the CLI and the test-suite. `make reset-demo` moves runs, claims, uploads and deliveries to `data/archive/<timestamp>/` and keeps the model cache, so a demo can be replayed from zero at no model cost.
 
@@ -81,7 +87,7 @@ Every case ends in one of four outcomes, computed by the rule alone and shown on
 | **Claim supported** | the whole claimed window overlaps the event: the penalty stands |
 | **Cannot be determined** | no completion observed, footage not time-synchronized, or no claim window |
 
-`docs/DEMO_SCRIPT.md` walks through the three demo turnarounds step by step — XY123 (loading finished before STD: claim not supported), XY456 (loading finished 4 minutes into the window: claim partly supported) and XY789 (footage ends before loading does: cannot be determined); `python scripts/run_demo_cases.py` registers the claims and uploads the footage from `config/demo_cases.json`, and `docs/DEMO_STORYBOARD.md` is the recording plan for the video.
+`docs/DEMO_SCRIPT.md` walks through the three demo cases step by step: XY123 (clip1: all 3 claimed minutes supported — claim supported), XY456 (clip3: 2 of 12 minutes supported; the airline disputes; the handler's resolution is recorded in the review record and the hash-chained event log, while the latest signed packet reflects the airline's dispute) and XY789 (clip2: no completed event, no packet; the run summary shows `status: no_candidate` and `minutes_supported_by_video: null`, which the console labels "cannot be determined"). `python scripts/run_demo_cases.py` registers the claims and uploads the footage with the values in `config/demo_cases.json`; the decisions are made by hand in the console. `examples/` holds the signed packets these cases produced.
 
 ## Station board
 
@@ -127,20 +133,31 @@ Already as it will be in a pilot: the pipeline, the packet format and verifier, 
 | --- | --- | --- | --- |
 | `sam-3.1` | aircraft box, loading-equipment boxes, person boxes for redaction | Responses API, `input_video` + one noun phrase, boxes parsed from the special-token output, masks ignored | track identity, name equipment types |
 | `muse-spark-1.3` | keyframe facts, hold-door state, agree/disagree with the rule; **claim intake** (telex / email / report photo → structured claim) | chat completions, image data URLs, strict `json_schema` output, reasoning effort medium | set a milestone time, decide a claim, choose the delay code |
-| `muse-voice-transcribe-1.0` | the operator's spoken statement, transcribed and signed into the packet on Send | `/v1/asr/transcribe` multipart (`request` + `audio` parts) | — |
+| `muse-voice-transcribe-1.0` | the operator's spoken statement, transcribed and signed into the packet on Send | `/v1/asr/transcribe` multipart (`request` + `audio` parts); implemented, not exercised in the demo cases (statements were typed) | — |
 
 API responses are cached per clip under `data/cache/` (key = concept + file SHA-256 + request metadata), so re-running a clip costs nothing. First run of a 40 s, 30 fps clip ≈ $0.75 (SAM, 3 video calls) + $0.02 (Spark). Each run writes its own cost estimate to `run_metrics.json` and the console shows it.
 
 ## Quickstart
 
+Requires Python ≥ 3.11 and ffmpeg on PATH. The demo clips come from Pexels and are not
+redistributed (see `ATTRIBUTIONS.md`); put your copies in `clips/` as `clip1.mp4`, `clip2.mp4` and
+`clip3.mp4`.
+
+Reproduce the three demo cases with `scripts/run_demo_cases.py`:
+
 ```bash
 git clone https://github.com/daarsai/daars_turnproof.git && cd daars_turnproof
 make setup                        # venv, deps, demo signing keys, .env from template
 #   put MODEL_API_KEY=... (Meta Model API, Standard mode) into .env
-cp your_clip.mp4 clips/clip1.mp4  # a stand-camera clip; scenarios/clip1/ holds the synthetic claim + log
-make demo CLIP=clips/clip1.mp4    # run the pipeline (prints the run id and the verify command)
 make serve                        # console -> http://localhost:8090
+.venv/bin/python scripts/run_demo_cases.py   # second terminal: registers the three claims, uploads clips/clip1-3.mp4
 ```
+
+The script uses the values in `config/demo_cases.json` and stops before any decision: confirm,
+send, acknowledge or dispute in the console by hand.
+
+CLI test path: `make demo CLIP=clips/clip1.mp4` runs the pipeline with the synthetic claim and log
+in `scenarios/clip1/`. It is the CLI test path and does not reproduce the video.
 
 Other targets:
 
@@ -152,10 +169,29 @@ make tamper PACKET=...            # copy the frames, flip one pixel, expect FAIL
 make replay RUN=<run_id>          # re-run a clip from the cache, no API spend
 make archive RUN=<run_id>         # hide an old run from the console (moved to data/archive/)
 make reset-demo                   # start the console empty (everything moved to data/archive/<ts>/, cache kept)
-docker compose up --build         # same console in a container (mount data/, clips/, keys/)
 ```
 
+Dockerfile and compose file included; not verified for this release.
+
 Per-clip settings live in `config/config.yaml`: declared clip start time, speed factor (time-lapse footage), and the camera view that picks the hold-zone preset. A clip without a declared start time runs as **unsynced**: milestones get frame numbers, never clock times, and the packet says so.
+
+## Quick verification
+
+`examples/` holds the two signed packets from the demo cases (XY123, XY456), their redacted
+evidence frames and event logs, the demo public key, and the run summary of XY789 (no packet; it shows
+`status: no_candidate` and `minutes_supported_by_video: null`, which the console labels "cannot be
+determined"). From the repository root, after `make setup`:
+
+```bash
+.venv/bin/python verify_packet.py examples/xy123-supported/TP-20261103-df350fc7.json \
+    --frames examples/xy123-supported/frames --log examples/xy123-supported/eventlog.jsonl \
+    --pub examples/turnproof-demo-2026.pub
+.venv/bin/python verify_packet.py examples/xy456-partly-supported/TP-20261103-a58696d0.json \
+    --frames examples/xy456-partly-supported/frames --log examples/xy456-partly-supported/eventlog.jsonl \
+    --pub examples/turnproof-demo-2026.pub
+```
+
+Each prints seven `PASS` lines and `RESULT: VERIFIED`.
 
 ## Verify a packet yourself
 
@@ -186,6 +222,15 @@ Only `system`, `handler_operator` and `airline_reviewer` move states. Reject, co
 - The Station page's stream is a local RTSP loop of licensed time-lapse footage in the demo (speed ×6); a real stand camera runs at ×1. The ADS-B adapter gives landing times, never stands or on-block times.
 - No tracking: a second vehicle passing through the zone extends the docked period. Smoothing and gap-merging handle short events; Spark's keyframe check catches the rest, and the operator decides.
 - Accuracy is not claimed. The console shows every number the rule used; the packet records every model and prompt by hash.
+- A run uploaded with the Muse Spark keyframe check off stays at "Awaiting AI keyframe check" and cannot be reviewed or sent; re-upload with the check on.
+
+## Roadmap
+
+- Validate the fuelling and catering events on footage.
+- Equipment attach/detach timing per piece of ground support equipment (GSE).
+- Ramp safety evidence (PPE, restricted-zone entry) with human review.
+
+Proposed; not implemented or validated in this prototype.
 
 ## Repository
 
@@ -194,6 +239,7 @@ turnproof/            pipeline.py (run), ingest/ (frames, redact, crypto), perce
                       zones/, events/ (occupancy rule, milestones, event log), reason/ (Spark client, prompts,
                       schemas), evidence/ (canonical JSON, signing, discrepancy, packet, PDF), review/ (console)
 verify_packet.py      standalone verifier
+examples/             signed demo packets, redacted evidence frames, event logs, public key
 scripts/              smoke tests, key generation, tamper demo, speed-factor estimator
 scenarios/<clip>/     synthetic clip_meta.json, airline_claim.json, handler_log.csv
 config/config.yaml    models, zone presets, rule thresholds, per-clip declarations
@@ -205,4 +251,5 @@ Never committed: `.env`, `keys/*.pem`, `clips/*`, `data/`. Originals are encrypt
 
 ## Team and licence
 
-DAARS Instruments Pvt. Ltd., Bengaluru — a founder-led build. Apache-2.0.
+DAARS Instruments Pvt. Ltd., Bengaluru — a founder-led build. Code: Apache-2.0. Demo footage:
+Pexels License, not redistributed (see `ATTRIBUTIONS.md`).

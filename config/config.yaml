@@ -87,18 +87,20 @@ integrity:
 clips:
   # speed factors below were measured with scripts/estimate_speed.py from vehicle motion in the
   # SAM detections (assumed apron speed 4 m/s); accuracy roughly +/-50%.
+  # Start times and speed factors are the ones declared for the demo cases (config/demo_cases.json):
+  # clip1 = XY123, clip2 = XY789, clip3 = XY456.
   clip1:
-    reference_start_utc: "2026-10-30T17:58:00Z"
+    reference_start_utc: "2026-10-30T18:44:45Z"
     speed_factor: 6.0
     speed_factor_source: estimated_from_vehicle_motion
     view: front_quarter
   clip2:
-    reference_start_utc: "2026-10-30T19:10:00Z"
-    speed_factor: 9.0
+    reference_start_utc: "2026-10-30T18:00:00Z"
+    speed_factor: 6.0
     speed_factor_source: estimated_from_vehicle_motion
-    view: nose
+    view: front_quarter
   clip3:
-    reference_start_utc: null   # demonstrates unsynced: no start time declared
+    reference_start_utc: "2026-10-30T19:56:12Z"
     speed_factor: 12.0
     speed_factor_source: estimated_from_vehicle_motion
     view: front_quarter

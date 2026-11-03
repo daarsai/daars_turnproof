@@ -46,8 +46,8 @@ def show(case: dict) -> None:
     print(f"Contract: {ct['sla_rate']} {ct['currency']} per minute")
     print(f"Upload: {case['clip']} · event {up['event']} · view {up['view']} · clip start "
           f"{up['reference_start']} UTC · speed x{up['speed_factor']} ({up['speed_source']})")  # fmt: skip
-    e = case["expected"]
-    print(f"Expected: {e['outcome']} · supported {e['supported_minutes']} min · {e['money']}")
+    if e := case.get("expected"):
+        print(f"Expected: {e['outcome']} · supported {e['supported_minutes']} min · {e['money']}")
 
 
 def register(client: httpx.Client, case: dict) -> str:

@@ -1,4 +1,4 @@
-"""Tamper demo for the video: copy a run's display frames, flip one pixel in one evidence
+"""Tamper demo: copy a run's display frames, flip one pixel in one evidence
 frame, and run the verifier on the copy (expected: FAIL). The original run is untouched.
 
 Usage: python scripts/tamper_demo.py data/runs/<run_id>/packets/<packet>.json

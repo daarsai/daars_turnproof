@@ -1,7 +1,1 @@
-# Footage attributions
-
-Every clip used in development or the demo video is listed here before use.
-
-- `clips/clip1.mp4` — Licensed footage; licence held by DAARS Instruments Pvt. Ltd.
-- `clips/clip2.mp4` — Licensed footage; licence held by DAARS Instruments Pvt. Ltd.
-- `clips/clip3.mp4` — Licensed footage; licence held by DAARS Instruments Pvt. Ltd.
+All three demo clips were downloaded from Pexels (pexels.com) between 31 October and 3 November 2026 under the Pexels License, found via https://www.pexels.com/video/ground-handling-activities-on-an-airplane-docked-in-montreal-aiirport-3653894/ (creator: German Korb) and its related results. Individual clip pages for the remaining clips were not retained. The Pexels License permits use within a new work but not standalone redistribution, so the clips are not included in this repository. All flight, claim and log data are synthetic.
